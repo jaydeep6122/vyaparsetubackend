@@ -3,20 +3,14 @@ import { ApiError } from "../../../utils/ApiError.js";
 
 export async function listItems(req, res) {
   const { businessId } = req.params;
-  const { item_type, search } = req.query;
+  const { search } = req.query;
 
   let query = "SELECT * FROM items WHERE business_id = $1";
   const values = [businessId];
   let paramIndex = 2;
 
-  if (item_type) {
-    query += ` AND item_type = $${paramIndex}`;
-    values.push(item_type);
-    paramIndex++;
-  }
-
   if (search) {
-    query += ` AND (name ILIKE $${paramIndex} OR sku ILIKE $${paramIndex})`;
+    query += ` AND name ILIKE $${paramIndex}`;
     values.push(`%${search}%`);
     paramIndex++;
   }

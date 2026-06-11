@@ -52,35 +52,16 @@ describe("Items Integration Tests", () => {
         .set("Authorization", `Bearer ${token}`)
         .send({
           name: "Test Mouse",
-          item_type: "product",
-          sku: "MSE-001",
           hsn_code: "8471",
-          sales_price: 600,
-          purchase_price: 350,
-          tax_rate: 18,
-          is_tax_inclusive: false,
-          measuring_unit: "pcs",
-          opening_stock: 10,
-          low_stock_warning: 2
+          measuring_unit: "pcs"
         });
 
       expect(res.statusCode).toBe(201);
       expect(res.body).toHaveProperty("id");
       expect(res.body.name).toBe("Test Mouse");
-      expect(Number(res.body.current_stock)).toBe(10);
+      expect(res.body.hsn_code).toBe("8471");
+      expect(res.body.measuring_unit).toBe("pcs");
       createdItemId = res.body.id;
-    });
-
-    it("should fail validation if item_type is invalid", async () => {
-      const res = await request(app)
-        .post(`/v1/businesses/${businessId}/items`)
-        .set("Authorization", `Bearer ${token}`)
-        .send({
-          name: "Invalid Item",
-          item_type: "wrong_type"
-        });
-
-      expect(res.statusCode).toBe(400);
     });
   });
 
@@ -114,39 +95,12 @@ describe("Items Integration Tests", () => {
         .set("Authorization", `Bearer ${token}`)
         .send({
           name: "Updated Mouse",
-          sales_price: 650
+          hsn_code: "9999"
         });
 
       expect(res.statusCode).toBe(200);
       expect(res.body.name).toBe("Updated Mouse");
-      expect(Number(res.body.sales_price)).toBe(650);
-    });
-  });
-
-  describe("POST /v1/businesses/:businessId/items/:itemId/adjust-stock", () => {
-    it("should add manual stock adjustments correctly", async () => {
-      const res = await request(app)
-        .post(`/v1/businesses/${businessId}/items/${createdItemId}/adjust-stock`)
-        .set("Authorization", `Bearer ${token}`)
-        .send({
-          item_id: createdItemId,
-          quantity: 5,
-          type: "adjustment_add",
-          notes: "Manual adjustment add"
-        });
-
-      expect(res.statusCode).toBe(200);
-      expect(Number(res.body.current_stock)).toBe(15);
-
-      // Verify the transaction was saved
-      const txRes = await pool.query(
-        "SELECT * FROM stock_transactions WHERE item_id = $1 AND transaction_type = 'adjustment_add'",
-        [createdItemId]
-      );
-      expect(txRes.rowCount).toBeGreaterThan(0);
-      const manualTx = txRes.rows.find(t => t.notes === "Manual adjustment add");
-      expect(manualTx).toBeDefined();
-      expect(Number(manualTx.quantity)).toBe(5);
+      expect(res.body.hsn_code).toBe("9999");
     });
   });
 
@@ -154,8 +108,8 @@ describe("Items Integration Tests", () => {
     it("should delete the item successfully", async () => {
       // Create a temporary item
       const tempRes = await pool.query(
-        `INSERT INTO items (business_id, name, item_type)
-         VALUES ($1, 'Temp Item', 'product') RETURNING id`,
+        `INSERT INTO items (business_id, name)
+         VALUES ($1, 'Temp Item') RETURNING id`,
         [businessId]
       );
       const tempId = tempRes.rows[0].id;

@@ -174,43 +174,6 @@ export async function createInvoice(req, res) {
         ]
       );
 
-      if (item.dbItem && item.dbItem.item_type === "product") {
-        let stockChange = 0;
-        let txnType = "sale";
-
-        if (invoice_type === "sale" || invoice_type === "purchase_return") {
-          stockChange = -item.quantity;
-          txnType = invoice_type;
-        } else if (invoice_type === "purchase" || invoice_type === "sale_return") {
-          stockChange = item.quantity;
-          txnType = invoice_type;
-        }
-
-        const newStock = Number(item.dbItem.current_stock) + stockChange;
-        
-        if (newStock < 0) {
-          throw new ApiError(400, `Insufficient stock for item '${item.name}'. Available: ${item.dbItem.current_stock}`);
-        }
-
-        await client.query(
-          "UPDATE items SET current_stock = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-          [newStock, item.item_id]
-        );
-
-        await client.query(
-          `INSERT INTO stock_transactions (
-            business_id, item_id, transaction_type, quantity, reference_id, notes
-           ) VALUES ($1, $2, $3, $4, $5, $6)`,
-          [
-            businessId,
-            item.item_id,
-            txnType,
-            item.quantity,
-            savedInvoice.id,
-            `Invoice: ${invoice_number}`,
-          ]
-        );
-      }
     }
 
     if (party) {

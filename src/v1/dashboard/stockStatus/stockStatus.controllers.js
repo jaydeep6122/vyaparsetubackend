@@ -6,21 +6,27 @@ export async function getStockStatusReport(req, res) {
   const { businessId } = req.params;
 
   const result = await pool.query(
-    `SELECT id, name, sku, item_type, current_stock, purchase_price, sales_price, measuring_unit,
-            (current_stock * purchase_price) as stock_valuation
+    `SELECT id, name, hsn_code, measuring_unit
      FROM items
-     WHERE business_id = $1 AND item_type = 'product'
+     WHERE business_id = $1
      ORDER BY name ASC`,
     [businessId]
   );
 
-  let totalValuation = 0;
-  result.rows.forEach((row) => {
-    totalValuation += Number(row.stock_valuation || 0);
-  });
+  const items = result.rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    sku: null,
+    item_type: "product",
+    current_stock: 0,
+    purchase_price: 0,
+    sales_price: 0,
+    measuring_unit: row.measuring_unit,
+    stock_valuation: 0,
+  }));
 
   res.status(200).json({
-    items: result.rows,
-    total_valuation: round2(totalValuation),
+    items,
+    total_valuation: 0,
   });
 }

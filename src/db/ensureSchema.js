@@ -116,23 +116,27 @@ export async function ensureSchema() {
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
         name VARCHAR(255) NOT NULL,
-        item_type VARCHAR(50) NOT NULL CHECK (item_type IN ('product', 'service')),
-        sku VARCHAR(100),
         hsn_code VARCHAR(20),
-        sales_price NUMERIC(15, 2) DEFAULT 0.00,
-        purchase_price NUMERIC(15, 2) DEFAULT 0.00,
-        tax_rate NUMERIC(5, 2) DEFAULT 0.00,
-        is_tax_inclusive BOOLEAN DEFAULT FALSE,
         measuring_unit VARCHAR(50) DEFAULT 'pcs',
-        opening_stock NUMERIC(15, 2) DEFAULT 0.00,
-        current_stock NUMERIC(15, 2) DEFAULT 0.00,
-        low_stock_warning NUMERIC(15, 2) DEFAULT 0.00,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT unique_item_name_per_business UNIQUE (business_id, name)
       );
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_items_business_id ON items(business_id);`);
+
+    // Drop unused items columns and constraints cascade for existing installations
+    await pool.query(`
+      ALTER TABLE items DROP COLUMN IF EXISTS item_type CASCADE;
+      ALTER TABLE items DROP COLUMN IF EXISTS sku CASCADE;
+      ALTER TABLE items DROP COLUMN IF EXISTS sales_price CASCADE;
+      ALTER TABLE items DROP COLUMN IF EXISTS purchase_price CASCADE;
+      ALTER TABLE items DROP COLUMN IF EXISTS tax_rate CASCADE;
+      ALTER TABLE items DROP COLUMN IF EXISTS is_tax_inclusive CASCADE;
+      ALTER TABLE items DROP COLUMN IF EXISTS opening_stock CASCADE;
+      ALTER TABLE items DROP COLUMN IF EXISTS current_stock CASCADE;
+      ALTER TABLE items DROP COLUMN IF EXISTS low_stock_warning CASCADE;
+    `);
 
     // Ensure invoices table exists
     await pool.query(`
@@ -216,22 +220,8 @@ export async function ensureSchema() {
       );
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_expenses_business_id ON expenses(business_id);`);
-
-    // Ensure stock_transactions table exists
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS stock_transactions (
-        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
-        item_id UUID NOT NULL REFERENCES items(id) ON DELETE CASCADE,
-        transaction_type VARCHAR(50) NOT NULL CHECK (transaction_type IN ('sale', 'purchase', 'sale_return', 'purchase_return', 'adjustment_add', 'adjustment_reduce')),
-        quantity NUMERIC(15, 2) NOT NULL,
-        reference_id UUID,
-        transaction_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        notes TEXT,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_stock_transactions_item_id ON stock_transactions(item_id);`);
+    // Drop stock_transactions table as we no longer track stock transactions
+    await pool.query(`DROP TABLE IF EXISTS stock_transactions CASCADE;`);
 
     console.log("Database schema checked and ensured successfully!");
   } catch (error) {

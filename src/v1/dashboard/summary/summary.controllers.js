@@ -23,10 +23,7 @@ export async function getDashboardSummary(req, res) {
     [businessId]
   );
 
-  const lowStockRes = await pool.query(
-    "SELECT id, name, sku, current_stock, low_stock_warning, measuring_unit FROM items WHERE business_id = $1 AND item_type = 'product' AND current_stock <= low_stock_warning",
-    [businessId]
-  );
+  const lowStockRes = { rowCount: 0, rows: [] };
 
   const flowsRes = await pool.query(
     `

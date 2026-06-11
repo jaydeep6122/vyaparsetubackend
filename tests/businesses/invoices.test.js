@@ -46,10 +46,10 @@ describe("Invoices Integration Tests", () => {
     );
     partyId = partyRes.rows[0].id;
 
-    // Create an item (product)
+    // Create an item
     const itemRes = await pool.query(
-      `INSERT INTO items (business_id, name, item_type, current_stock, sales_price, purchase_price)
-       VALUES ($1, 'Laptop', 'product', 10, 50000, 40000) RETURNING id`,
+      `INSERT INTO items (business_id, name)
+       VALUES ($1, 'Laptop') RETURNING id`,
       [businessId]
     );
     itemId = itemRes.rows[0].id;
@@ -63,7 +63,7 @@ describe("Invoices Integration Tests", () => {
   });
 
   describe("POST /v1/businesses/:businessId/invoices", () => {
-    it("should create a sale invoice, reduce item stock, and adjust party balance", async () => {
+    it("should create a sale invoice and adjust party balance", async () => {
       // Total amount: 1 * 50000 = 50000
       // Tax: 18% of 50000 = 9000 -> Total total_amount = 59000
       // Paid: 9000 -> Unpaid/Due: 50000
@@ -94,43 +94,9 @@ describe("Invoices Integration Tests", () => {
       expect(Number(res.body.total_amount)).toBe(59000);
       createdInvoiceId = res.body.id;
 
-      // 1. Verify item stock is reduced: 10 - 1 = 9
-      const itemCheck = await pool.query("SELECT current_stock FROM items WHERE id = $1", [itemId]);
-      expect(Number(itemCheck.rows[0].current_stock)).toBe(9);
-
-      // 2. Verify stock transaction is registered
-      const stCheck = await pool.query(
-        "SELECT * FROM stock_transactions WHERE item_id = $1 AND transaction_type = 'sale'",
-        [itemId]
-      );
-      expect(stCheck.rowCount).toBe(1);
-      expect(Number(stCheck.rows[0].quantity)).toBe(1);
-
-      // 3. Verify party balance is updated: current_balance should be 50000 (receivable)
+      // Verify party balance is updated: current_balance should be 50000 (receivable)
       const partyCheck = await pool.query("SELECT current_balance FROM parties WHERE id = $1", [partyId]);
       expect(Number(partyCheck.rows[0].current_balance)).toBe(50000);
-    });
-
-    it("should prevent invoice creation if item stock is insufficient", async () => {
-      const res = await request(app)
-        .post(`/v1/businesses/${businessId}/invoices`)
-        .set("Authorization", `Bearer ${token}`)
-        .send({
-          party_id: partyId,
-          invoice_number: "INV-2026-FAIL",
-          invoice_type: "sale",
-          payment_mode: "cash",
-          items: [
-            {
-              item_id: itemId,
-              name: "Laptop",
-              quantity: 20, // Only 9 available
-              unit_price: 50000
-            }
-          ]
-        });
-
-      expect(res.statusCode).toBe(400);
     });
   });
 
@@ -190,22 +156,18 @@ describe("Invoices Integration Tests", () => {
   });
 
   describe("DELETE /v1/businesses/:businessId/invoices/:invoiceId", () => {
-    it("should delete invoice, restore stock, and revert party balance", async () => {
+    it("should delete invoice and revert party balance", async () => {
       const res = await request(app)
         .delete(`/v1/businesses/${businessId}/invoices/${createdInvoiceId}`)
         .set("Authorization", `Bearer ${token}`);
 
       expect(res.statusCode).toBe(204);
 
-      // 1. Verify item stock is restored: 9 + 1 = 10
-      const itemCheck = await pool.query("SELECT current_stock FROM items WHERE id = $1", [itemId]);
-      expect(Number(itemCheck.rows[0].current_stock)).toBe(10);
-
-      // 2. Verify party balance is reverted: 50000 - 50000 = 0
+      // Verify party balance is reverted: 50000 - 50000 = 0
       const partyCheck = await pool.query("SELECT current_balance FROM parties WHERE id = $1", [partyId]);
       expect(Number(partyCheck.rows[0].current_balance)).toBe(0);
 
-      // 3. Verify invoice is deleted
+      // Verify invoice is deleted
       const verifyRes = await request(app)
         .get(`/v1/businesses/${businessId}/invoices/${createdInvoiceId}`)
         .set("Authorization", `Bearer ${token}`);

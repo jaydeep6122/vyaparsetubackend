@@ -68,27 +68,11 @@ export const updatePartySchema = createPartySchema.partial();
 // Item Validation
 export const createItemSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  item_type: z.enum(["product", "service"]),
-  sku: z.string().optional().nullable(),
   hsn_code: z.string().optional().nullable(),
-  sales_price: z.number().nonnegative().optional(),
-  purchase_price: z.number().nonnegative().optional(),
-  tax_rate: z.number().nonnegative().max(100).optional(),
-  is_tax_inclusive: z.boolean().optional(),
   measuring_unit: z.string().optional().nullable(),
-  opening_stock: z.number().nonnegative().optional(),
-  current_stock: z.number().nonnegative().optional(),
-  low_stock_warning: z.number().nonnegative().optional(),
 });
 
 export const updateItemSchema = createItemSchema.partial();
-
-export const adjustStockSchema = z.object({
-  item_id: z.string().uuid("Invalid item ID"),
-  quantity: z.number().positive("Quantity must be positive"),
-  type: z.enum(["adjustment_add", "adjustment_reduce"]),
-  notes: z.string().optional().nullable(),
-});
 
 // Invoice Validation
 export const createInvoiceSchema = z.object({

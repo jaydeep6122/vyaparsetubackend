@@ -61,31 +61,6 @@ export async function updateInvoice(req, res) {
     );
     const oldInvoiceItems = oldItemsRes.rows;
 
-    for (const oldItem of oldInvoiceItems) {
-      if (oldItem.item_id) {
-        const itemRes = await client.query(
-          "SELECT * FROM items WHERE id = $1 FOR UPDATE",
-          [oldItem.item_id]
-        );
-        if (itemRes.rowCount > 0) {
-          const dbItem = itemRes.rows[0];
-          if (dbItem.item_type === "product") {
-            let revertChange = 0;
-            if (oldInvoice.invoice_type === "sale" || oldInvoice.invoice_type === "purchase_return") {
-              revertChange = Number(oldItem.quantity);
-            } else if (oldInvoice.invoice_type === "purchase" || oldInvoice.invoice_type === "sale_return") {
-              revertChange = -Number(oldItem.quantity);
-            }
-            const revertedStock = Number(dbItem.current_stock) + revertChange;
-            await client.query(
-              "UPDATE items SET current_stock = $1 WHERE id = $2",
-              [revertedStock, oldItem.item_id]
-            );
-          }
-        }
-      }
-    }
-
     if (oldInvoice.party_id) {
       const partyRes = await client.query(
         "SELECT * FROM parties WHERE id = $1 FOR UPDATE",
@@ -112,7 +87,6 @@ export async function updateInvoice(req, res) {
       }
     }
 
-    await client.query("DELETE FROM stock_transactions WHERE reference_id = $1", [invoiceId]);
     await client.query("DELETE FROM invoice_items WHERE invoice_id = $1", [invoiceId]);
 
     let calcSubtotal = 0;
@@ -245,48 +219,6 @@ export async function updateInvoice(req, res) {
         ]
       );
 
-      if (item.dbItem && item.dbItem.item_type === "product") {
-        let stockChange = 0;
-        let txnType = "sale";
-
-        if (invoice_type === "sale" || invoice_type === "purchase_return") {
-          stockChange = -item.quantity;
-          txnType = invoice_type;
-        } else if (invoice_type === "purchase" || invoice_type === "sale_return") {
-          stockChange = item.quantity;
-          txnType = invoice_type;
-        }
-
-        const freshItemRes = await client.query(
-          "SELECT current_stock FROM items WHERE id = $1 FOR UPDATE",
-          [item.item_id]
-        );
-        const freshItem = freshItemRes.rows[0];
-        const newStock = Number(freshItem.current_stock) + stockChange;
-
-        if (newStock < 0) {
-          throw new ApiError(400, `Insufficient stock for item '${item.name}'. Available: ${freshItem.current_stock}`);
-        }
-
-        await client.query(
-          "UPDATE items SET current_stock = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-          [newStock, item.item_id]
-        );
-
-        await client.query(
-          `INSERT INTO stock_transactions (
-            business_id, item_id, transaction_type, quantity, reference_id, notes
-           ) VALUES ($1, $2, $3, $4, $5, $6)`,
-          [
-            businessId,
-            item.item_id,
-            txnType,
-            item.quantity,
-            invoiceId,
-            `Invoice Edited: ${invoice_number}`,
-          ]
-        );
-      }
     }
 
     if (party_id) {
