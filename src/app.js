@@ -7,11 +7,6 @@ import rateLimit from "express-rate-limit";
 import { errorHandler } from "./middlewares/error.middlewares.js";
 import authRoutes from "./v1/auth/auth.js";
 import businessesRouter from "./v1/businesses/businesses.js";
-import { ensureSchema } from "./db/ensureSchema.js";
-
-// Run DB schema checks on startup
-ensureSchema();
-
 const app = express();
 
 // Set security HTTP headers
