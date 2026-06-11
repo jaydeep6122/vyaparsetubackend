@@ -1,0 +1,131 @@
+import pool from "../../../db/db.js";
+
+const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
+
+export async function getDashboardSummary(req, res) {
+  const { businessId } = req.params;
+
+  const salesRes = await pool.query(
+    "SELECT SUM(total_amount) as total FROM invoices WHERE business_id = $1 AND invoice_type = 'sale'",
+    [businessId]
+  );
+  const purchasesRes = await pool.query(
+    "SELECT SUM(total_amount) as total FROM invoices WHERE business_id = $1 AND invoice_type = 'purchase'",
+    [businessId]
+  );
+
+  const receivablesRes = await pool.query(
+    "SELECT SUM(current_balance) as total FROM parties WHERE business_id = $1 AND current_balance > 0",
+    [businessId]
+  );
+  const payablesRes = await pool.query(
+    "SELECT SUM(current_balance) as total FROM parties WHERE business_id = $1 AND current_balance < 0",
+    [businessId]
+  );
+
+  const lowStockRes = await pool.query(
+    "SELECT id, name, sku, current_stock, low_stock_warning, measuring_unit FROM items WHERE business_id = $1 AND item_type = 'product' AND current_stock <= low_stock_warning",
+    [businessId]
+  );
+
+  const flowsRes = await pool.query(
+    `
+    SELECT 
+      COALESCE(SUM(CASE WHEN invoice_type = 'sale' AND payment_mode = 'cash' THEN paid_amount END), 0) as inv_sale_cash_in,
+      COALESCE(SUM(CASE WHEN invoice_type = 'sale' AND payment_mode = 'bank' THEN paid_amount END), 0) as inv_sale_bank_in,
+      COALESCE(SUM(CASE WHEN invoice_type = 'sale' AND payment_mode = 'upi' THEN paid_amount END), 0) as inv_sale_upi_in,
+      
+      COALESCE(SUM(CASE WHEN invoice_type = 'purchase_return' AND payment_mode = 'cash' THEN paid_amount END), 0) as inv_pr_cash_in,
+      COALESCE(SUM(CASE WHEN invoice_type = 'purchase_return' AND payment_mode = 'bank' THEN paid_amount END), 0) as inv_pr_bank_in,
+      COALESCE(SUM(CASE WHEN invoice_type = 'purchase_return' AND payment_mode = 'upi' THEN paid_amount END), 0) as inv_pr_upi_in,
+
+      COALESCE(SUM(CASE WHEN invoice_type = 'purchase' AND payment_mode = 'cash' THEN paid_amount END), 0) as inv_pur_cash_out,
+      COALESCE(SUM(CASE WHEN invoice_type = 'purchase' AND payment_mode = 'bank' THEN paid_amount END), 0) as inv_pur_bank_out,
+      COALESCE(SUM(CASE WHEN invoice_type = 'purchase' AND payment_mode = 'upi' THEN paid_amount END), 0) as inv_pur_upi_out,
+
+      COALESCE(SUM(CASE WHEN invoice_type = 'sale_return' AND payment_mode = 'cash' THEN paid_amount END), 0) as inv_sr_cash_out,
+      COALESCE(SUM(CASE WHEN invoice_type = 'sale_return' AND payment_mode = 'bank' THEN paid_amount END), 0) as inv_sr_bank_out,
+      COALESCE(SUM(CASE WHEN invoice_type = 'sale_return' AND payment_mode = 'upi' THEN paid_amount END), 0) as inv_sr_upi_out
+    FROM invoices 
+    WHERE business_id = $1
+    `,
+    [businessId]
+  );
+
+  const payFlowsRes = await pool.query(
+    `
+    SELECT
+      COALESCE(SUM(CASE WHEN payment_type = 'payment_in' AND payment_mode = 'cash' THEN amount END), 0) as pay_in_cash,
+      COALESCE(SUM(CASE WHEN payment_type = 'payment_in' AND payment_mode = 'bank' THEN amount END), 0) as pay_in_bank,
+      COALESCE(SUM(CASE WHEN payment_type = 'payment_in' AND payment_mode = 'upi' THEN amount END), 0) as pay_in_upi,
+
+      COALESCE(SUM(CASE WHEN payment_type = 'payment_out' AND payment_mode = 'cash' THEN amount END), 0) as pay_out_cash,
+      COALESCE(SUM(CASE WHEN payment_type = 'payment_out' AND payment_mode = 'bank' THEN amount END), 0) as pay_out_bank,
+      COALESCE(SUM(CASE WHEN payment_type = 'payment_out' AND payment_mode = 'upi' THEN amount END), 0) as pay_out_upi
+    FROM payments
+    WHERE business_id = $1
+    `,
+    [businessId]
+  );
+
+  const expFlowsRes = await pool.query(
+    `
+    SELECT
+      COALESCE(SUM(CASE WHEN payment_mode = 'cash' THEN paid_amount END), 0) as exp_cash,
+      COALESCE(SUM(CASE WHEN payment_mode = 'bank' THEN paid_amount END), 0) as exp_bank,
+      COALESCE(SUM(CASE WHEN payment_mode = 'upi' THEN paid_amount END), 0) as exp_upi
+    FROM expenses
+    WHERE business_id = $1
+    `,
+    [businessId]
+  );
+
+  const invFlow = flowsRes.rows[0];
+  const payFlow = payFlowsRes.rows[0];
+  const expFlow = expFlowsRes.rows[0];
+
+  const cashBalance = round2(
+    Number(invFlow.inv_sale_cash_in) +
+      Number(invFlow.inv_pr_cash_in) +
+      Number(payFlow.pay_in_cash) -
+      (Number(invFlow.inv_pur_cash_out) +
+        Number(invFlow.inv_sr_cash_out) +
+        Number(payFlow.pay_out_cash) +
+        Number(expFlow.exp_cash))
+  );
+
+  const bankBalance = round2(
+    Number(invFlow.inv_sale_bank_in) +
+      Number(invFlow.inv_pr_bank_in) +
+      Number(payFlow.pay_in_bank) -
+      (Number(invFlow.inv_pur_bank_out) +
+        Number(invFlow.inv_sr_bank_out) +
+        Number(payFlow.pay_out_bank) +
+        Number(expFlow.exp_bank))
+  );
+
+  const upiBalance = round2(
+    Number(invFlow.inv_sale_upi_in) +
+      Number(invFlow.inv_pr_upi_in) +
+      Number(payFlow.pay_in_upi) -
+      (Number(invFlow.inv_pur_upi_out) +
+        Number(invFlow.inv_sr_upi_out) +
+        Number(payFlow.pay_out_upi) +
+        Number(expFlow.exp_upi))
+  );
+
+  res.status(200).json({
+    total_sales: round2(salesRes.rows[0]?.total || 0),
+    total_purchases: round2(purchasesRes.rows[0]?.total || 0),
+    total_receivables: round2(receivablesRes.rows[0]?.total || 0),
+    total_payables: round2(Math.abs(payablesRes.rows[0]?.total || 0)),
+    low_stock_items_count: lowStockRes.rowCount,
+    low_stock_items: lowStockRes.rows,
+    cash_book: {
+      cash: cashBalance,
+      bank: bankBalance,
+      upi: upiBalance,
+      total_money: round2(cashBalance + bankBalance + upiBalance),
+    },
+  });
+}
