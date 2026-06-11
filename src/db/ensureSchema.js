@@ -98,7 +98,7 @@ export async function ensureSchema() {
         email VARCHAR(255),
         gstin VARCHAR(15),
         billing_address TEXT,
-        shipping_address TEXT,
+        shipping_address JSONB,
         party_type VARCHAR(50) NOT NULL CHECK (party_type IN ('customer', 'supplier', 'both')),
         opening_balance NUMERIC(15, 2) DEFAULT 0.00,
         opening_balance_type VARCHAR(20) DEFAULT 'receive' CHECK (opening_balance_type IN ('receive', 'pay')),
@@ -109,6 +109,9 @@ export async function ensureSchema() {
       );
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_parties_business_id ON parties(business_id);`);
+    await pool.query(`
+      ALTER TABLE parties ALTER COLUMN shipping_address TYPE JSONB USING to_jsonb(shipping_address);
+    `).catch(() => {});
 
     // Ensure items table exists
     await pool.query(`
@@ -146,6 +149,8 @@ export async function ensureSchema() {
         party_id UUID REFERENCES parties(id) ON DELETE SET NULL,
         invoice_number VARCHAR(100) NOT NULL,
         invoice_type VARCHAR(50) NOT NULL CHECK (invoice_type IN ('sale', 'purchase', 'sale_return', 'purchase_return')),
+        chalan_no VARCHAR(100),
+        transport_cost NUMERIC(15, 2) DEFAULT 0.00,
         invoice_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         due_date TIMESTAMP WITH TIME ZONE,
         sub_total NUMERIC(15, 2) NOT NULL,
@@ -163,6 +168,8 @@ export async function ensureSchema() {
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_invoices_business_id ON invoices(business_id);`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_invoices_party_id ON invoices(party_id);`);
+    await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS chalan_no VARCHAR(100);`);
+    await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS transport_cost NUMERIC(15, 2) DEFAULT 0.00;`);
 
     // Ensure invoice_items table exists
     await pool.query(`
@@ -189,6 +196,7 @@ export async function ensureSchema() {
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
         party_id UUID NOT NULL REFERENCES parties(id) ON DELETE CASCADE,
+        invoice_id UUID REFERENCES invoices(id) ON DELETE RESTRICT,
         payment_type VARCHAR(50) NOT NULL CHECK (payment_type IN ('payment_in', 'payment_out')),
         reference_number VARCHAR(100),
         payment_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -201,6 +209,8 @@ export async function ensureSchema() {
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_payments_business_id ON payments(business_id);`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_payments_party_id ON payments(party_id);`);
+    await pool.query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS invoice_id UUID REFERENCES invoices(id) ON DELETE RESTRICT;`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_payments_invoice_id ON payments(invoice_id);`);
 
     // Ensure expenses table exists
     await pool.query(`

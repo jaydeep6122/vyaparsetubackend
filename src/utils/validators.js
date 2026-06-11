@@ -54,10 +54,10 @@ export const updateBusinessSchema = createBusinessSchema.partial();
 export const createPartySchema = z.object({
   name: z.string().min(1, "Name is required"),
   phone: z.string().optional().nullable(),
-  email: z.string().email("Invalid email").optional().nullable(),
+  email: z.union([z.string().email("Invalid email"), z.literal("")]).optional().nullable(),
   gstin: z.string().optional().nullable(),
   billing_address: z.string().optional().nullable(),
-  shipping_address: z.string().optional().nullable(),
+  shipping_address: z.union([z.string(), z.array(z.string())]).optional().nullable(),
   party_type: z.enum(["customer", "supplier", "both"]),
   opening_balance: z.number().nonnegative().default(0),
   opening_balance_type: z.enum(["receive", "pay"]).default("receive"),
@@ -79,6 +79,8 @@ export const createInvoiceSchema = z.object({
   party_id: z.string().uuid("Invalid party ID").optional().nullable(),
   invoice_number: z.string().min(1, "Invoice number is required"),
   invoice_type: z.enum(["sale", "purchase", "sale_return", "purchase_return"]),
+  chalan_no: z.string().optional().nullable(),
+  transport_cost: z.number().nonnegative("Transport cost must be non-negative").optional(),
   invoice_date: z.string().optional(),
   due_date: z.string().optional().nullable(),
   discount_amount: z.number().nonnegative().optional(),
@@ -104,6 +106,7 @@ export const updateInvoiceSchema = createInvoiceSchema.partial();
 // Payment Validation
 export const createPaymentSchema = z.object({
   party_id: z.string().uuid("Invalid party ID"),
+  invoice_id: z.string().uuid("Invalid invoice ID").optional().nullable(),
   payment_type: z.enum(["payment_in", "payment_out"]),
   amount: z.number().positive("Amount must be positive"),
   payment_mode: z.enum(["cash", "bank", "upi"]),

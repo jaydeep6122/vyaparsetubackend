@@ -38,7 +38,7 @@ export async function up(pgm) {
     email: { type: "varchar(255)" },
     gstin: { type: "varchar(15)" },
     billing_address: { type: "text" },
-    shipping_address: { type: "text" },
+    shipping_address: { type: "jsonb" },
     party_type: { type: "varchar(50)", notNull: true, check: "party_type IN ('customer', 'supplier', 'both')" },
     opening_balance: { type: "numeric(15, 2)", default: 0.00 },
     opening_balance_type: { type: "varchar(20)", default: "'receive'", check: "opening_balance_type IN ('receive', 'pay')" },

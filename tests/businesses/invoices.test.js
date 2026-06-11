@@ -63,10 +63,12 @@ describe("Invoices Integration Tests", () => {
   });
 
   describe("POST /v1/businesses/:businessId/invoices", () => {
-    it("should create a sale invoice and adjust party balance", async () => {
+    it("should create a sale invoice with chalan_no and adjust party balance", async () => {
       // Total amount: 1 * 50000 = 50000
-      // Tax: 18% of 50000 = 9000 -> Total total_amount = 59000
-      // Paid: 9000 -> Unpaid/Due: 50000
+      // Tax: 18% of 50000 = 9000
+      // Transport cost: 2500
+      // Total total_amount = 50000 + 9000 + 2500 = 61500
+      // Paid: 9000 -> Unpaid/Due: 52500
       const res = await request(app)
         .post(`/v1/businesses/${businessId}/invoices`)
         .set("Authorization", `Bearer ${token}`)
@@ -77,6 +79,8 @@ describe("Invoices Integration Tests", () => {
           payment_mode: "cash",
           paid_amount: 9000,
           discount_amount: 0,
+          chalan_no: "CH-12345",
+          transport_cost: 2500,
           items: [
             {
               item_id: itemId,
@@ -91,12 +95,44 @@ describe("Invoices Integration Tests", () => {
       expect(res.statusCode).toBe(201);
       expect(res.body).toHaveProperty("id");
       expect(res.body.invoice_number).toBe("INV-2026-001");
-      expect(Number(res.body.total_amount)).toBe(59000);
+      expect(res.body.chalan_no).toBe("CH-12345");
+      expect(Number(res.body.transport_cost)).toBe(2500);
+      expect(Number(res.body.total_amount)).toBe(61500);
       createdInvoiceId = res.body.id;
 
-      // Verify party balance is updated: current_balance should be 50000 (receivable)
+      // Verify party balance is updated: current_balance should be 52500 (receivable)
       const partyCheck = await pool.query("SELECT current_balance FROM parties WHERE id = $1", [partyId]);
-      expect(Number(partyCheck.rows[0].current_balance)).toBe(50000);
+      expect(Number(partyCheck.rows[0].current_balance)).toBe(52500);
+    });
+
+    it("should create a sale invoice without paid_amount successfully (paid_amount should default to 0)", async () => {
+      const partyRes = await pool.query(
+        `INSERT INTO parties (business_id, name, party_type, opening_balance, current_balance)
+         VALUES ($1, 'Optional Party Customer', 'customer', 0, 0) RETURNING id`,
+        [businessId]
+      );
+      const optionalPartyId = partyRes.rows[0].id;
+
+      const res = await request(app)
+        .post(`/v1/businesses/${businessId}/invoices`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          party_id: optionalPartyId,
+          invoice_number: "INV-2026-OPTIONAL",
+          invoice_type: "sale",
+          payment_mode: "cash",
+          items: [
+            {
+              item_id: itemId,
+              name: "Laptop",
+              quantity: 1,
+              unit_price: 1000
+            }
+          ]
+        });
+
+      expect(res.statusCode).toBe(201);
+      expect(Number(res.body.paid_amount)).toBe(0);
     });
   });
 
@@ -127,7 +163,7 @@ describe("Invoices Integration Tests", () => {
   });
 
   describe("PUT /v1/businesses/:businessId/invoices/:invoiceId", () => {
-    it("should update invoice notes successfully", async () => {
+    it("should update invoice notes and chalan_no successfully", async () => {
       const res = await request(app)
         .put(`/v1/businesses/${businessId}/invoices/${createdInvoiceId}`)
         .set("Authorization", `Bearer ${token}`)
@@ -139,6 +175,8 @@ describe("Invoices Integration Tests", () => {
           paid_amount: 9000,
           discount_amount: 0,
           notes: "Updated delivery terms",
+          chalan_no: "CH-67890",
+          transport_cost: 1500,
           items: [
             {
               item_id: itemId,
@@ -152,6 +190,12 @@ describe("Invoices Integration Tests", () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.body.notes).toBe("Updated delivery terms");
+      expect(res.body.chalan_no).toBe("CH-67890");
+      expect(Number(res.body.transport_cost)).toBe(1500);
+
+      // Verify party balance is updated: unpaid is 60500 - 9000 = 51500
+      const partyCheck = await pool.query("SELECT current_balance FROM parties WHERE id = $1", [partyId]);
+      expect(Number(partyCheck.rows[0].current_balance)).toBe(51500);
     });
   });
 

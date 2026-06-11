@@ -9,6 +9,8 @@ export async function updateInvoice(req, res) {
     party_id,
     invoice_number,
     invoice_type,
+    chalan_no,
+    transport_cost,
     invoice_date,
     due_date,
     discount_amount = 0,
@@ -144,7 +146,8 @@ export async function updateInvoice(req, res) {
     calcDiscountAmount += overallDiscount;
     calcSubtotal -= overallDiscount;
 
-    const calcTotalAmount = round2(calcSubtotal + calcTaxAmount);
+    const transportAmt = transport_cost === undefined ? Number(oldInvoice.transport_cost || 0) : Number(transport_cost || 0);
+    const calcTotalAmount = round2(calcSubtotal + calcTaxAmount + transportAmt);
     const paidAmt = Number(paid_amount);
 
     if (paidAmt > calcTotalAmount) {
@@ -164,18 +167,20 @@ export async function updateInvoice(req, res) {
         party_id = $1,
         invoice_number = $2,
         invoice_type = $3,
-        invoice_date = $4,
-        due_date = $5,
-        sub_total = $6,
-        tax_amount = $7,
-        discount_amount = $8,
-        total_amount = $9,
-        paid_amount = $10,
-        payment_status = $11,
-        payment_mode = $12,
-        notes = $13,
+        chalan_no = $4,
+        transport_cost = $5,
+        invoice_date = $6,
+        due_date = $7,
+        sub_total = $8,
+        tax_amount = $9,
+        discount_amount = $10,
+        total_amount = $11,
+        paid_amount = $12,
+        payment_status = $13,
+        payment_mode = $14,
+        notes = $15,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $14
+      WHERE id = $16
       RETURNING *
     `;
 
@@ -183,6 +188,8 @@ export async function updateInvoice(req, res) {
       party_id || null,
       invoice_number,
       invoice_type,
+      chalan_no === undefined ? oldInvoice.chalan_no : (chalan_no || null),
+      transport_cost === undefined ? oldInvoice.transport_cost : Number(transport_cost || 0),
       invoice_date ? new Date(invoice_date) : oldInvoice.invoice_date,
       due_date ? new Date(due_date) : null,
       round2(calcSubtotal),

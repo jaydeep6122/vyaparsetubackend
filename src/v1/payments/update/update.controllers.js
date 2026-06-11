@@ -7,6 +7,7 @@ export async function updatePayment(req, res) {
   const { businessId, paymentId } = req.params;
   const {
     party_id,
+    invoice_id,
     payment_type,
     amount,
     payment_mode,
@@ -36,7 +37,7 @@ export async function updatePayment(req, res) {
   try {
     await client.query("BEGIN");
 
-    // Lock old payment and party
+    // Lock old payment
     const oldPaymentRes = await client.query(
       "SELECT * FROM payments WHERE id = $1 AND business_id = $2 FOR UPDATE",
       [paymentId, businessId]
@@ -48,6 +49,30 @@ export async function updatePayment(req, res) {
 
     const oldPayment = oldPaymentRes.rows[0];
 
+    // Revert old invoice paid_amount if existed
+    if (oldPayment.invoice_id) {
+      const oldInvoiceRes = await client.query(
+        "SELECT * FROM invoices WHERE id = $1 FOR UPDATE",
+        [oldPayment.invoice_id]
+      );
+      if (oldInvoiceRes.rowCount > 0) {
+        const oldInvoice = oldInvoiceRes.rows[0];
+        const revertedPaidAmount = Math.max(0, round2(Number(oldInvoice.paid_amount) - Number(oldPayment.amount)));
+        let revertedPaymentStatus = "unpaid";
+        if (revertedPaidAmount >= Number(oldInvoice.total_amount)) {
+          revertedPaymentStatus = "paid";
+        } else if (revertedPaidAmount > 0) {
+          revertedPaymentStatus = "partially_paid";
+        }
+
+        await client.query(
+          "UPDATE invoices SET paid_amount = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
+          [revertedPaidAmount, revertedPaymentStatus, oldPayment.invoice_id]
+        );
+      }
+    }
+
+    // Lock old party
     const oldPartyRes = await client.query(
       "SELECT * FROM parties WHERE id = $1 FOR UPDATE",
       [oldPayment.party_id]
@@ -70,6 +95,53 @@ export async function updatePayment(req, res) {
       );
     }
 
+    // Validate and update new invoice if specified
+    const amt = Number(amount);
+    if (invoice_id) {
+      const newInvoiceRes = await client.query(
+        "SELECT * FROM invoices WHERE id = $1 AND business_id = $2 FOR UPDATE",
+        [invoice_id, businessId]
+      );
+      if (newInvoiceRes.rowCount === 0) {
+        throw new ApiError(404, "Invoice not found");
+      }
+      const linkedInvoice = newInvoiceRes.rows[0];
+
+      if (linkedInvoice.party_id !== party_id) {
+        throw new ApiError(400, "Invoice does not belong to the selected party");
+      }
+
+      if (linkedInvoice.invoice_type === "sale" && payment_type !== "payment_in") {
+        throw new ApiError(400, "For sale invoices, payment type must be payment_in");
+      }
+      if (linkedInvoice.invoice_type === "purchase" && payment_type !== "payment_out") {
+        throw new ApiError(400, "For purchase invoices, payment type must be payment_out");
+      }
+      if (linkedInvoice.invoice_type !== "sale" && linkedInvoice.invoice_type !== "purchase") {
+        throw new ApiError(400, "Linked payments are only supported for sale and purchase invoices");
+      }
+
+      const currentPaid = Number(linkedInvoice.paid_amount);
+      const totalAmt = Number(linkedInvoice.total_amount);
+      const remainingUnpaid = round2(totalAmt - currentPaid);
+      if (amt > remainingUnpaid) {
+        throw new ApiError(400, `Payment amount (${amt}) exceeds the remaining unpaid invoice amount (${remainingUnpaid})`);
+      }
+
+      const newPaidAmount = round2(currentPaid + amt);
+      let newPaymentStatus = "unpaid";
+      if (newPaidAmount >= totalAmt) {
+        newPaymentStatus = "paid";
+      } else if (newPaidAmount > 0) {
+        newPaymentStatus = "partially_paid";
+      }
+
+      await client.query(
+        "UPDATE invoices SET paid_amount = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
+        [newPaidAmount, newPaymentStatus, invoice_id]
+      );
+    }
+
     // Lock new party (may be same or different)
     const newPartyRes = await client.query(
       "SELECT * FROM parties WHERE id = $1 AND business_id = $2 FOR UPDATE",
@@ -79,23 +151,24 @@ export async function updatePayment(req, res) {
       throw new ApiError(404, "Party not found");
     }
     const newParty = newPartyRes.rows[0];
-    const amt = Number(amount);
 
     const query = `
       UPDATE payments SET
         party_id = $1,
-        payment_type = $2,
-        reference_number = $3,
-        payment_date = $4,
-        amount = $5,
-        payment_mode = $6,
-        description = $7,
+        invoice_id = $2,
+        payment_type = $3,
+        reference_number = $4,
+        payment_date = $5,
+        amount = $6,
+        payment_mode = $7,
+        description = $8,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $8 AND business_id = $9
+      WHERE id = $9 AND business_id = $10
       RETURNING *
     `;
     const values = [
       party_id,
+      invoice_id || null,
       payment_type,
       reference_number || null,
       payment_date ? new Date(payment_date) : new Date(),
@@ -108,7 +181,7 @@ export async function updatePayment(req, res) {
 
     const result = await client.query(query, values);
 
-    // Apply new effect
+    // Apply new effect on new party
     let balanceChange = 0;
     if (payment_type === "payment_in") {
       balanceChange = -amt;
