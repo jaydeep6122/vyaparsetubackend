@@ -5,12 +5,14 @@ import { refreshSession } from "./refresh/refresh.controllers.js";
 import { logout } from "./logout/logout.controllers.js";
 import { requireAuth } from "../../middlewares/auth.middlewares.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
+import { validate } from "../../middlewares/validation.middlewares.js";
+import { signupSchema, loginSchema, refreshTokenSchema } from "../../utils/validators.js";
 
 const router = express.Router();
 
-router.post("/signup", asyncHandler(signup));
-router.post("/login", asyncHandler(login));
-router.post("/refresh", asyncHandler(refreshSession));
+router.post("/signup", validate(signupSchema), asyncHandler(signup));
+router.post("/login", validate(loginSchema), asyncHandler(login));
+router.post("/refresh", validate(refreshTokenSchema), asyncHandler(refreshSession));
 router.post("/logout", asyncHandler(logout));
 
 // Protected test endpoint to verify authorization headers

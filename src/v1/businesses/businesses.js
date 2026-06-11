@@ -11,16 +11,18 @@ import expensesRouter from "../expenses/expenses.js";
 import dashboardRouter from "../dashboard/dashboard.js";
 import { requireAuth, requireBusinessOwner } from "../../middlewares/auth.middlewares.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
+import { validate } from "../../middlewares/validation.middlewares.js";
+import { createBusinessSchema, updateBusinessSchema } from "../../utils/validators.js";
 
 const router = express.Router();
 
 // Apply requireAuth middleware so all business actions require a valid access token
 router.use(requireAuth);
 
-router.post("/", asyncHandler(createBusiness));
+router.post("/", validate(createBusinessSchema), asyncHandler(createBusiness));
 router.get("/", asyncHandler(listBusinesses));
 router.get("/:businessId", requireBusinessOwner, asyncHandler(getBusinessById));
-router.put("/:businessId", requireBusinessOwner, asyncHandler(updateBusiness));
+router.put("/:businessId", requireBusinessOwner, validate(updateBusinessSchema), asyncHandler(updateBusiness));
 router.delete("/:businessId", requireBusinessOwner, asyncHandler(deleteBusiness));
 
 // Nested resources

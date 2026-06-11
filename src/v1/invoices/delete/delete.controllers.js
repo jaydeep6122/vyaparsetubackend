@@ -42,9 +42,9 @@ export async function deleteInvoice(req, res) {
             let revertChange = 0;
 
             if (invoice.invoice_type === "sale" || invoice.invoice_type === "purchase_return") {
-              revertChange = item.quantity;
+              revertChange = Number(item.quantity);
             } else if (invoice.invoice_type === "purchase" || invoice.invoice_type === "sale_return") {
-              revertChange = -item.quantity;
+              revertChange = -Number(item.quantity);
             }
 
             const newStock = Number(dbItem.current_stock) + revertChange;

@@ -4,7 +4,7 @@ import { generateAccessToken, generateRefreshToken } from "../signup/signup.cont
 import { findRefreshTokenService, findUserByIdService, updateRefreshTokenService } from "./refresh.services.js";
 
 export async function refreshSession(req, res) {
-  const refreshToken = req.cookies?.refreshToken || req.body.refreshToken;
+  const refreshToken = req.cookies?.refreshToken || req.body.refresh_token || req.body.refreshToken;
 
   if (!refreshToken) {
     throw new ApiError(401, "Refresh token is required");
