@@ -7,24 +7,23 @@ import rateLimit from "express-rate-limit";
 import { errorHandler } from "./middlewares/error.middlewares.js";
 import authRoutes from "./v1/auth/auth.js";
 import businessesRouter from "./v1/businesses/businesses.js";
+import swaggerRouter from "./swagger.js";
+import logger from "./utils/logger.js";
+import { readFileSync } from "fs";
+
 const app = express();
 
 // Set security HTTP headers
 app.use(helmet());
 
 // Enable CORS
-// app.use(
-//   cors({
-//     origin: "*", // Adjust this to specific domains in production if needed
-//     credentials: true,
-//   }),
-// );
 app.use(
   cors({
     origin: "*", // Adjust this to specific domains in production if needed
     credentials: true,
   }),
 );
+
 // Development logging
 app.use(morgan("dev"));
 
@@ -40,11 +39,15 @@ app.use(limiter);
 
 app.use(express.json());
 
-app.use("/", (req, res) => {
-  res.status(200).json({ message: "Request sended by Cron" });
+// Health check route (only match root path)
+app.get("/", (req, res) => {
+  res.status(200).json({ message: "Request sent by Cron" });
 });
+
+// API routes
 app.use("/v1/auth", authRoutes);
 app.use("/v1/businesses", businessesRouter);
+app.use("/", swaggerRouter);
 
 // Error handling middleware MUST be registered last
 app.use(errorHandler);

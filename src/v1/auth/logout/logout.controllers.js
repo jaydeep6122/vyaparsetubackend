@@ -3,7 +3,7 @@ import { ApiError } from "../../../utils/ApiError.js";
 import { revokeSingleTokenService, revokeAllUserTokensService } from "./logout.services.js";
 
 export async function logout(req, res) {
-  const refreshToken = req.cookies?.refreshToken || req.body.refreshToken;
+  const refreshToken = req.cookies?.refreshToken || req.body.refresh_token || req.body.refreshToken;
   const { allDevices } = req.body;
 
   if (!refreshToken) {

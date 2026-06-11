@@ -1,4 +1,5 @@
 import { ApiError } from "../utils/ApiError.js";
+import logger from "../utils/logger.js";
 
 /**
  * Global Error Handler Middleware.
@@ -20,8 +21,12 @@ const errorHandler = (err, req, res, next) => {
     ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
   };
 
-  console.error(`[Error] ${statusCode}: ${message}`);
-  if (err.stack) console.error(err.stack);
+  // Log error with structured logger
+  logger.error(`[Error] ${statusCode}: ${message}`, {
+    stack: err.stack,
+    url: req.originalUrl,
+    method: req.method,
+  });
 
   res.status(statusCode).json(response);
 };

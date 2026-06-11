@@ -72,9 +72,9 @@ export async function updateInvoice(req, res) {
           if (dbItem.item_type === "product") {
             let revertChange = 0;
             if (oldInvoice.invoice_type === "sale" || oldInvoice.invoice_type === "purchase_return") {
-              revertChange = oldItem.quantity;
+              revertChange = Number(oldItem.quantity);
             } else if (oldInvoice.invoice_type === "purchase" || oldInvoice.invoice_type === "sale_return") {
-              revertChange = -oldItem.quantity;
+              revertChange = -Number(oldItem.quantity);
             }
             const revertedStock = Number(dbItem.current_stock) + revertChange;
             await client.query(
@@ -257,10 +257,15 @@ export async function updateInvoice(req, res) {
           txnType = invoice_type;
         }
 
-        const newStock = Number(item.dbItem.current_stock) + stockChange;
+        const freshItemRes = await client.query(
+          "SELECT current_stock FROM items WHERE id = $1 FOR UPDATE",
+          [item.item_id]
+        );
+        const freshItem = freshItemRes.rows[0];
+        const newStock = Number(freshItem.current_stock) + stockChange;
 
         if (newStock < 0) {
-          throw new ApiError(400, `Insufficient stock for item '${item.name}'. Available: ${item.dbItem.current_stock}`);
+          throw new ApiError(400, `Insufficient stock for item '${item.name}'. Available: ${freshItem.current_stock}`);
         }
 
         await client.query(

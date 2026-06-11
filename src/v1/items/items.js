@@ -5,14 +5,16 @@ import { updateItem } from "./update/update.controllers.js";
 import { deleteItem } from "./delete/delete.controllers.js";
 import { adjustStock } from "./adjustStock/adjustStock.controllers.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
+import { validate } from "../../middlewares/validation.middlewares.js";
+import { createItemSchema, updateItemSchema, adjustStockSchema } from "../../utils/validators.js";
 
 const router = express.Router({ mergeParams: true });
 
-router.post("/", asyncHandler(createItem));
+router.post("/", validate(createItemSchema), asyncHandler(createItem));
 router.get("/", asyncHandler(listItems));
 router.get("/:itemId", asyncHandler(getItemById));
-router.put("/:itemId", asyncHandler(updateItem));
+router.put("/:itemId", validate(updateItemSchema), asyncHandler(updateItem));
 router.delete("/:itemId", asyncHandler(deleteItem));
-router.post("/:itemId/adjust-stock", asyncHandler(adjustStock));
+router.post("/:itemId/adjust-stock", validate(adjustStockSchema), asyncHandler(adjustStock));
 
 export default router;
