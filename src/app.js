@@ -13,11 +13,18 @@ const app = express();
 app.use(helmet());
 
 // Enable CORS
-app.use(cors({
-  origin: "*", // Adjust this to specific domains in production if needed
-  credentials: true,
-}));
-
+// app.use(
+//   cors({
+//     origin: "*", // Adjust this to specific domains in production if needed
+//     credentials: true,
+//   }),
+// );
+app.use(
+  cors({
+    origin: "*", // Adjust this to specific domains in production if needed
+    credentials: true,
+  }),
+);
 // Development logging
 app.use(morgan("dev"));
 
@@ -33,6 +40,9 @@ app.use(limiter);
 
 app.use(express.json());
 
+app.use("/", (req, res) => {
+  res.status(200).json({ message: "Request sended by Cron" });
+});
 app.use("/v1/auth", authRoutes);
 app.use("/v1/businesses", businessesRouter);
 
