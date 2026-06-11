@@ -1,8 +1,6 @@
-import { ColumnDefinitions, MigrationBuilder } from "node-pg-migrate";
+export const shorthands = undefined;
 
-export const shorthands: ColumnDefinitions | undefined = undefined;
-
-export async function up(pgm: MigrationBuilder): Promise<void> {
+export async function up(pgm) {
   // Create businesses table
   pgm.createTable("businesses", {
     id: { type: "uuid", primaryKey: true, default: pgm.func("gen_random_uuid()") },
@@ -40,7 +38,7 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
     email: { type: "varchar(255)" },
     gstin: { type: "varchar(15)" },
     billing_address: { type: "text" },
-    shipping_address: { type: "text" },
+    shipping_address: { type: "jsonb" },
     party_type: { type: "varchar(50)", notNull: true, check: "party_type IN ('customer', 'supplier', 'both')" },
     opening_balance: { type: "numeric(15, 2)", default: 0.00 },
     opening_balance_type: { type: "varchar(20)", default: "'receive'", check: "opening_balance_type IN ('receive', 'pay')" },
@@ -54,23 +52,14 @@ export async function up(pgm: MigrationBuilder): Promise<void> {
     id: { type: "uuid", primaryKey: true, default: pgm.func("gen_random_uuid()") },
     business_id: { type: "uuid", notNull: true, references: "businesses", onDelete: "CASCADE" },
     name: { type: "varchar(255)", notNull: true },
-    item_type: { type: "varchar(50)", notNull: true, check: "item_type IN ('product', 'service')" },
-    sku: { type: "varchar(100)" },
     hsn_code: { type: "varchar(20)" },
-    sales_price: { type: "numeric(15, 2)", default: 0.00 },
-    purchase_price: { type: "numeric(15, 2)", default: 0.00 },
-    tax_rate: { type: "numeric(5, 2)", default: 0.00 },
-    is_tax_inclusive: { type: "boolean", default: false },
     measuring_unit: { type: "varchar(50)", default: "'pcs'" },
-    opening_stock: { type: "numeric(15, 2)", default: 0.00 },
-    current_stock: { type: "numeric(15, 2)", default: 0.00 },
-    low_stock_warning: { type: "numeric(15, 2)", default: 0.00 },
     created_at: { type: "timestamp with time zone", default: pgm.func("CURRENT_TIMESTAMP") },
     updated_at: { type: "timestamp with time zone", default: pgm.func("CURRENT_TIMESTAMP") },
   });
 }
 
-export async function down(pgm: MigrationBuilder): Promise<void> {
+export async function down(pgm) {
   pgm.dropTable("items");
   pgm.dropTable("parties");
   pgm.dropTable("businesses");

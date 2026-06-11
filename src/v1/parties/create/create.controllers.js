@@ -57,7 +57,7 @@ export async function createParty(req, res) {
       email || null,
       normalizedGstin || null,
       billing_address || null,
-      shipping_address || null,
+      shipping_address ? JSON.stringify(shipping_address) : null,
       party_type,
       opening_balance,
       opening_balance_type,

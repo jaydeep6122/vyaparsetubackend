@@ -7,6 +7,7 @@ export async function createPayment(req, res) {
   const { businessId } = req.params;
   const {
     party_id,
+    invoice_id,
     payment_type,
     amount,
     payment_mode,
@@ -48,16 +49,62 @@ export async function createPayment(req, res) {
     const party = partyRes.rows[0];
     const amt = Number(amount);
 
+    if (invoice_id) {
+      const invoiceRes = await client.query(
+        "SELECT * FROM invoices WHERE id = $1 AND business_id = $2 FOR UPDATE",
+        [invoice_id, businessId]
+      );
+      if (invoiceRes.rowCount === 0) {
+        throw new ApiError(404, "Invoice not found");
+      }
+      const linkedInvoice = invoiceRes.rows[0];
+
+      if (linkedInvoice.party_id !== party_id) {
+        throw new ApiError(400, "Invoice does not belong to the selected party");
+      }
+
+      if (linkedInvoice.invoice_type === "sale" && payment_type !== "payment_in") {
+        throw new ApiError(400, "For sale invoices, payment type must be payment_in");
+      }
+      if (linkedInvoice.invoice_type === "purchase" && payment_type !== "payment_out") {
+        throw new ApiError(400, "For purchase invoices, payment type must be payment_out");
+      }
+      if (linkedInvoice.invoice_type !== "sale" && linkedInvoice.invoice_type !== "purchase") {
+        throw new ApiError(400, "Linked payments are only supported for sale and purchase invoices");
+      }
+
+      const currentPaid = Number(linkedInvoice.paid_amount);
+      const totalAmt = Number(linkedInvoice.total_amount);
+      const remainingUnpaid = round2(totalAmt - currentPaid);
+      if (amt > remainingUnpaid) {
+        throw new ApiError(400, `Payment amount (${amt}) exceeds the remaining unpaid invoice amount (${remainingUnpaid})`);
+      }
+
+      const newPaidAmount = round2(currentPaid + amt);
+      let newPaymentStatus = "unpaid";
+      if (newPaidAmount >= totalAmt) {
+        newPaymentStatus = "paid";
+      } else if (newPaidAmount > 0) {
+        newPaymentStatus = "partially_paid";
+      }
+
+      await client.query(
+        "UPDATE invoices SET paid_amount = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
+        [newPaidAmount, newPaymentStatus, invoice_id]
+      );
+    }
+
     const query = `
       INSERT INTO payments (
-        business_id, party_id, payment_type, reference_number, 
+        business_id, party_id, invoice_id, payment_type, reference_number, 
         payment_date, amount, payment_mode, description
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
     `;
     const values = [
       businessId,
       party_id,
+      invoice_id || null,
       payment_type,
       reference_number || null,
       payment_date ? new Date(payment_date) : new Date(),

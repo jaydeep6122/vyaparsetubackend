@@ -9,6 +9,8 @@ export async function updateInvoice(req, res) {
     party_id,
     invoice_number,
     invoice_type,
+    chalan_no,
+    transport_cost,
     invoice_date,
     due_date,
     discount_amount = 0,
@@ -61,31 +63,6 @@ export async function updateInvoice(req, res) {
     );
     const oldInvoiceItems = oldItemsRes.rows;
 
-    for (const oldItem of oldInvoiceItems) {
-      if (oldItem.item_id) {
-        const itemRes = await client.query(
-          "SELECT * FROM items WHERE id = $1 FOR UPDATE",
-          [oldItem.item_id]
-        );
-        if (itemRes.rowCount > 0) {
-          const dbItem = itemRes.rows[0];
-          if (dbItem.item_type === "product") {
-            let revertChange = 0;
-            if (oldInvoice.invoice_type === "sale" || oldInvoice.invoice_type === "purchase_return") {
-              revertChange = Number(oldItem.quantity);
-            } else if (oldInvoice.invoice_type === "purchase" || oldInvoice.invoice_type === "sale_return") {
-              revertChange = -Number(oldItem.quantity);
-            }
-            const revertedStock = Number(dbItem.current_stock) + revertChange;
-            await client.query(
-              "UPDATE items SET current_stock = $1 WHERE id = $2",
-              [revertedStock, oldItem.item_id]
-            );
-          }
-        }
-      }
-    }
-
     if (oldInvoice.party_id) {
       const partyRes = await client.query(
         "SELECT * FROM parties WHERE id = $1 FOR UPDATE",
@@ -112,7 +89,6 @@ export async function updateInvoice(req, res) {
       }
     }
 
-    await client.query("DELETE FROM stock_transactions WHERE reference_id = $1", [invoiceId]);
     await client.query("DELETE FROM invoice_items WHERE invoice_id = $1", [invoiceId]);
 
     let calcSubtotal = 0;
@@ -170,7 +146,8 @@ export async function updateInvoice(req, res) {
     calcDiscountAmount += overallDiscount;
     calcSubtotal -= overallDiscount;
 
-    const calcTotalAmount = round2(calcSubtotal + calcTaxAmount);
+    const transportAmt = transport_cost === undefined ? Number(oldInvoice.transport_cost || 0) : Number(transport_cost || 0);
+    const calcTotalAmount = round2(calcSubtotal + calcTaxAmount + transportAmt);
     const paidAmt = Number(paid_amount);
 
     if (paidAmt > calcTotalAmount) {
@@ -190,18 +167,20 @@ export async function updateInvoice(req, res) {
         party_id = $1,
         invoice_number = $2,
         invoice_type = $3,
-        invoice_date = $4,
-        due_date = $5,
-        sub_total = $6,
-        tax_amount = $7,
-        discount_amount = $8,
-        total_amount = $9,
-        paid_amount = $10,
-        payment_status = $11,
-        payment_mode = $12,
-        notes = $13,
+        chalan_no = $4,
+        transport_cost = $5,
+        invoice_date = $6,
+        due_date = $7,
+        sub_total = $8,
+        tax_amount = $9,
+        discount_amount = $10,
+        total_amount = $11,
+        paid_amount = $12,
+        payment_status = $13,
+        payment_mode = $14,
+        notes = $15,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $14
+      WHERE id = $16
       RETURNING *
     `;
 
@@ -209,6 +188,8 @@ export async function updateInvoice(req, res) {
       party_id || null,
       invoice_number,
       invoice_type,
+      chalan_no === undefined ? oldInvoice.chalan_no : (chalan_no || null),
+      transport_cost === undefined ? oldInvoice.transport_cost : Number(transport_cost || 0),
       invoice_date ? new Date(invoice_date) : oldInvoice.invoice_date,
       due_date ? new Date(due_date) : null,
       round2(calcSubtotal),
@@ -245,48 +226,6 @@ export async function updateInvoice(req, res) {
         ]
       );
 
-      if (item.dbItem && item.dbItem.item_type === "product") {
-        let stockChange = 0;
-        let txnType = "sale";
-
-        if (invoice_type === "sale" || invoice_type === "purchase_return") {
-          stockChange = -item.quantity;
-          txnType = invoice_type;
-        } else if (invoice_type === "purchase" || invoice_type === "sale_return") {
-          stockChange = item.quantity;
-          txnType = invoice_type;
-        }
-
-        const freshItemRes = await client.query(
-          "SELECT current_stock FROM items WHERE id = $1 FOR UPDATE",
-          [item.item_id]
-        );
-        const freshItem = freshItemRes.rows[0];
-        const newStock = Number(freshItem.current_stock) + stockChange;
-
-        if (newStock < 0) {
-          throw new ApiError(400, `Insufficient stock for item '${item.name}'. Available: ${freshItem.current_stock}`);
-        }
-
-        await client.query(
-          "UPDATE items SET current_stock = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-          [newStock, item.item_id]
-        );
-
-        await client.query(
-          `INSERT INTO stock_transactions (
-            business_id, item_id, transaction_type, quantity, reference_id, notes
-           ) VALUES ($1, $2, $3, $4, $5, $6)`,
-          [
-            businessId,
-            item.item_id,
-            txnType,
-            item.quantity,
-            invoiceId,
-            `Invoice Edited: ${invoice_number}`,
-          ]
-        );
-      }
     }
 
     if (party_id) {

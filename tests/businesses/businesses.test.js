@@ -12,14 +12,12 @@ describe("Businesses Integration Tests", () => {
   beforeAll(async () => {
     testUserEmail = `biz_user_${Math.random().toString(36).substring(2, 11)}@example.com`;
     // Register user
-    const signupRes = await request(app)
-      .post("/v1/auth/signup")
-      .send({
-        name: "Business Owner",
-        email: testUserEmail,
-        password: "password123",
-        confirmPassword: "password123"
-      });
+    const signupRes = await request(app).post("/v1/auth/signup").send({
+      name: "Business Owner",
+      email: testUserEmail,
+      password: "password123",
+      confirmPassword: "password123",
+    });
     token = signupRes.body.accessToken;
     testUserId = signupRes.body.user.id;
   });
@@ -33,7 +31,10 @@ describe("Businesses Integration Tests", () => {
 
   const generateGSTIN = () => {
     const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const randLetters = Array.from({ length: 5 }, () => letters[Math.floor(Math.random() * 26)]).join("");
+    const randLetters = Array.from(
+      { length: 5 },
+      () => letters[Math.floor(Math.random() * 26)],
+    ).join("");
     return `27${randLetters}1234A1Z1`;
   };
 
@@ -52,7 +53,7 @@ describe("Businesses Integration Tests", () => {
           gstin: gstin,
           business_type: "retailer",
           invoice_prefix: "RET",
-          financial_year: "2026-2027"
+          financial_year: "2026-2027",
         });
 
       // The controller sends 204 status code (no content) for creation
@@ -65,7 +66,7 @@ describe("Businesses Integration Tests", () => {
         .set("Authorization", `Bearer ${token}`)
         .send({
           name: "", // Invalid name
-          business_type: "invalid_type"
+          business_type: "invalid_type",
         });
 
       expect(res.statusCode).toBe(400);
@@ -103,7 +104,7 @@ describe("Businesses Integration Tests", () => {
         .set("Authorization", `Bearer ${token}`)
         .send({
           name: "Updated Retailer Business",
-          city: "Mumbai"
+          city: "Mumbai",
         });
 
       expect(res.statusCode).toBe(200);
@@ -115,19 +116,20 @@ describe("Businesses Integration Tests", () => {
   describe("DELETE /v1/businesses/:businessId", () => {
     it("should delete the business profile successfully", async () => {
       const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-      const getRandLetter = () => letters[Math.floor(Math.random() * letters.length)];
+      const getRandLetter = () =>
+        letters[Math.floor(Math.random() * letters.length)];
       const tempGstin = `27${getRandLetter()}${getRandLetter()}${getRandLetter()}${getRandLetter()}${getRandLetter()}2222B2Z2`;
       await pool.query(
         `INSERT INTO businesses (user_id, name, address, city, state, pincode, gstin, business_type, invoice_prefix, financial_year)
          VALUES ($1, 'Temp Biz', 'Addr', 'City', 'State', '123', $2, 'retailer', 'TMP', '2026')`,
-        [testUserId, tempGstin]
+        [testUserId, tempGstin],
       );
 
       const listRes = await request(app)
         .get("/v1/businesses")
         .set("Authorization", `Bearer ${token}`);
-      
-      const tempBiz = listRes.body.find(b => b.name === "Temp Biz");
+
+      const tempBiz = listRes.body.find((b) => b.name === "Temp Biz");
       expect(tempBiz).toBeDefined();
 
       const deleteRes = await request(app)
@@ -141,6 +143,46 @@ describe("Businesses Integration Tests", () => {
         .get(`/v1/businesses/${tempBiz.id}`)
         .set("Authorization", `Bearer ${token}`);
       expect(verifyRes.statusCode).toBe(403);
+    });
+  });
+
+  describe("Parties Integration Tests", () => {
+    it("should create a party with optional email/phone and multiple shipping addresses", async () => {
+      const res = await request(app)
+        .post(`/v1/businesses/${createdBusinessId}/parties`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          name: "Test Party",
+          phone: "",
+          email: "",
+          shipping_address: ["123 Lane A", "456 Lane B"],
+          party_type: "customer",
+        });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.body.name).toBe("Test Party");
+      expect(res.body.email).toBeNull();
+      expect(res.body.shipping_address).toEqual(["123 Lane A", "456 Lane B"]);
+    });
+
+    it("should update a party successfully", async () => {
+      const partyRes = await pool.query(
+        "SELECT id FROM parties WHERE business_id = $1 LIMIT 1",
+        [createdBusinessId],
+      );
+      const partyId = partyRes.rows[0].id;
+
+      const res = await request(app)
+        .put(`/v1/businesses/${createdBusinessId}/parties/${partyId}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          name: "Updated Test Party",
+          shipping_address: ["789 New Lane"],
+        });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.name).toBe("Updated Test Party");
+      expect(res.body.shipping_address).toEqual(["789 New Lane"]);
     });
   });
 });

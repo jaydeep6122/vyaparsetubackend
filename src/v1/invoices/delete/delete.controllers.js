@@ -22,41 +22,6 @@ export async function deleteInvoice(req, res) {
 
     const invoice = invoiceRes.rows[0];
 
-    const itemsRes = await client.query(
-      "SELECT * FROM invoice_items WHERE invoice_id = $1",
-      [invoiceId]
-    );
-    const invoiceItems = itemsRes.rows;
-
-    for (const item of invoiceItems) {
-      if (item.item_id) {
-        const itemRes = await client.query(
-          "SELECT * FROM items WHERE id = $1 FOR UPDATE",
-          [item.item_id]
-        );
-
-        if (itemRes.rowCount > 0) {
-          const dbItem = itemRes.rows[0];
-
-          if (dbItem.item_type === "product") {
-            let revertChange = 0;
-
-            if (invoice.invoice_type === "sale" || invoice.invoice_type === "purchase_return") {
-              revertChange = Number(item.quantity);
-            } else if (invoice.invoice_type === "purchase" || invoice.invoice_type === "sale_return") {
-              revertChange = -Number(item.quantity);
-            }
-
-            const newStock = Number(dbItem.current_stock) + revertChange;
-
-            await client.query(
-              "UPDATE items SET current_stock = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-              [newStock, item.item_id]
-            );
-          }
-        }
-      }
-    }
 
     if (invoice.party_id) {
       const partyRes = await client.query(

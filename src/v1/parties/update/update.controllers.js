@@ -90,7 +90,7 @@ export async function updateParty(req, res) {
       email === undefined ? null : email,
       normalizedGstin === undefined ? null : normalizedGstin,
       billing_address === undefined ? null : billing_address,
-      shipping_address === undefined ? null : shipping_address,
+      shipping_address === undefined ? null : (shipping_address ? JSON.stringify(shipping_address) : null),
       party_type === undefined ? null : party_type,
       opening_balance === undefined ? null : opening_balance,
       opening_balance_type === undefined ? null : opening_balance_type,

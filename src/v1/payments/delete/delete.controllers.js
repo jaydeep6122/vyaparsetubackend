@@ -22,6 +22,29 @@ export async function deletePayment(req, res) {
 
     const payment = paymentRes.rows[0];
 
+    // Revert invoice paid_amount if existed
+    if (payment.invoice_id) {
+      const invoiceRes = await client.query(
+        "SELECT * FROM invoices WHERE id = $1 FOR UPDATE",
+        [payment.invoice_id]
+      );
+      if (invoiceRes.rowCount > 0) {
+        const invoice = invoiceRes.rows[0];
+        const revertedPaidAmount = Math.max(0, round2(Number(invoice.paid_amount) - Number(payment.amount)));
+        let revertedPaymentStatus = "unpaid";
+        if (revertedPaidAmount >= Number(invoice.total_amount)) {
+          revertedPaymentStatus = "paid";
+        } else if (revertedPaidAmount > 0) {
+          revertedPaymentStatus = "partially_paid";
+        }
+
+        await client.query(
+          "UPDATE invoices SET paid_amount = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
+          [revertedPaidAmount, revertedPaymentStatus, payment.invoice_id]
+        );
+      }
+    }
+
     const partyRes = await client.query(
       "SELECT * FROM parties WHERE id = $1 FOR UPDATE",
       [payment.party_id]

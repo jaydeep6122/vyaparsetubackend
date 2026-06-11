@@ -54,10 +54,10 @@ export const updateBusinessSchema = createBusinessSchema.partial();
 export const createPartySchema = z.object({
   name: z.string().min(1, "Name is required"),
   phone: z.string().optional().nullable(),
-  email: z.string().email("Invalid email").optional().nullable(),
+  email: z.union([z.string().email("Invalid email"), z.literal("")]).optional().nullable(),
   gstin: z.string().optional().nullable(),
   billing_address: z.string().optional().nullable(),
-  shipping_address: z.string().optional().nullable(),
+  shipping_address: z.union([z.string(), z.array(z.string())]).optional().nullable(),
   party_type: z.enum(["customer", "supplier", "both"]),
   opening_balance: z.number().nonnegative().default(0),
   opening_balance_type: z.enum(["receive", "pay"]).default("receive"),
@@ -68,33 +68,19 @@ export const updatePartySchema = createPartySchema.partial();
 // Item Validation
 export const createItemSchema = z.object({
   name: z.string().min(1, "Name is required"),
-  item_type: z.enum(["product", "service"]),
-  sku: z.string().optional().nullable(),
   hsn_code: z.string().optional().nullable(),
-  sales_price: z.number().nonnegative().optional(),
-  purchase_price: z.number().nonnegative().optional(),
-  tax_rate: z.number().nonnegative().max(100).optional(),
-  is_tax_inclusive: z.boolean().optional(),
   measuring_unit: z.string().optional().nullable(),
-  opening_stock: z.number().nonnegative().optional(),
-  current_stock: z.number().nonnegative().optional(),
-  low_stock_warning: z.number().nonnegative().optional(),
 });
 
 export const updateItemSchema = createItemSchema.partial();
-
-export const adjustStockSchema = z.object({
-  item_id: z.string().uuid("Invalid item ID"),
-  quantity: z.number().positive("Quantity must be positive"),
-  type: z.enum(["adjustment_add", "adjustment_reduce"]),
-  notes: z.string().optional().nullable(),
-});
 
 // Invoice Validation
 export const createInvoiceSchema = z.object({
   party_id: z.string().uuid("Invalid party ID").optional().nullable(),
   invoice_number: z.string().min(1, "Invoice number is required"),
   invoice_type: z.enum(["sale", "purchase", "sale_return", "purchase_return"]),
+  chalan_no: z.string().optional().nullable(),
+  transport_cost: z.number().nonnegative("Transport cost must be non-negative").optional(),
   invoice_date: z.string().optional(),
   due_date: z.string().optional().nullable(),
   discount_amount: z.number().nonnegative().optional(),
@@ -120,6 +106,7 @@ export const updateInvoiceSchema = createInvoiceSchema.partial();
 // Payment Validation
 export const createPaymentSchema = z.object({
   party_id: z.string().uuid("Invalid party ID"),
+  invoice_id: z.string().uuid("Invalid invoice ID").optional().nullable(),
   payment_type: z.enum(["payment_in", "payment_out"]),
   amount: z.number().positive("Amount must be positive"),
   payment_mode: z.enum(["cash", "bank", "upi"]),
