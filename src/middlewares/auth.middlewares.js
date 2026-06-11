@@ -36,3 +36,26 @@ export const requireAuth = asyncHandler(async (req, res, next) => {
     throw new ApiError(401, "Invalid access token");
   }
 });
+
+export const requireBusinessOwner = asyncHandler(async (req, res, next) => {
+  const businessId = req.params.businessId || req.body.businessId || req.query.businessId;
+  const userId = req.user?.id;
+
+  if (!businessId) {
+    throw new ApiError(400, "Business ID is required");
+  }
+
+  if (!userId) {
+    throw new ApiError(401, "Authentication is required");
+  }
+
+  const query = "SELECT id FROM businesses WHERE id = $1 AND user_id = $2";
+  const result = await pool.query(query, [businessId, userId]);
+
+  if (result.rowCount === 0) {
+    throw new ApiError(403, "You do not have permission to access this business");
+  }
+
+  next();
+});
+
