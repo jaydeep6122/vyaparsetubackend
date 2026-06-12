@@ -1,10 +1,18 @@
 import pool from "../../../db/db.js";
 import { ApiError } from "../../../utils/ApiError.js";
+import { getCache, setCache } from "../../../utils/redisClient.js";
+import { cacheKeys } from "../../../utils/cacheKeys.js";
 
 const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
 
 export async function getPartyLedgerReport(req, res) {
   const { businessId, partyId } = req.params;
+
+  const cacheKey = cacheKeys.dashboardPartyLedger(businessId, partyId);
+  const cached = await getCache(cacheKey);
+  if (cached) {
+    return res.status(200).json(cached);
+  }
 
   const partyCheck = await pool.query(
     "SELECT * FROM parties WHERE id = $1 AND business_id = $2",
@@ -17,21 +25,22 @@ export async function getPartyLedgerReport(req, res) {
 
   const party = partyCheck.rows[0];
 
-  const invoicesRes = await pool.query(
-    `SELECT id, invoice_number as ref_no, invoice_type as type, invoice_date as date, 
-            total_amount, paid_amount
-     FROM invoices
-     WHERE business_id = $1 AND party_id = $2`,
-    [businessId, partyId]
-  );
-
-  const paymentsRes = await pool.query(
-    `SELECT id, reference_number as ref_no, payment_type as type, payment_date as date, 
-            amount as total_amount, amount as paid_amount
-     FROM payments
-     WHERE business_id = $1 AND party_id = $2`,
-    [businessId, partyId]
-  );
+  const [invoicesRes, paymentsRes] = await Promise.all([
+    pool.query(
+      `SELECT id, invoice_number as ref_no, invoice_type as type, invoice_date as date, 
+              total_amount, paid_amount
+       FROM invoices
+       WHERE business_id = $1 AND party_id = $2`,
+      [businessId, partyId]
+    ),
+    pool.query(
+      `SELECT id, reference_number as ref_no, payment_type as type, payment_date as date, 
+              amount as total_amount, amount as paid_amount
+       FROM payments
+       WHERE business_id = $1 AND party_id = $2`,
+      [businessId, partyId]
+    ),
+  ]);
 
   const ledger = [];
 
@@ -94,7 +103,7 @@ export async function getPartyLedgerReport(req, res) {
     };
   });
 
-  res.status(200).json({
+  const result = {
     party: {
       id: party.id,
       name: party.name,
@@ -103,5 +112,9 @@ export async function getPartyLedgerReport(req, res) {
       current_balance: Number(party.current_balance),
     },
     ledger: ledgerWithRunningBalance,
-  });
+  };
+
+  await setCache(cacheKey, result, 120);
+
+  res.status(200).json(result);
 }

@@ -1,5 +1,6 @@
 import { createBusinessService } from "./create.services.js";
 import { ApiError } from "../../../utils/ApiError.js";
+import { invalidateBusinessCache } from "../../../utils/cacheInvalidation.js";
 
 export async function createBusiness(req, res) {
   const {
@@ -68,7 +69,7 @@ export async function createBusiness(req, res) {
   const userId = req.user.id;
 
   try {
-    await createBusinessService(userId, {
+    const business = await createBusinessService(userId, {
       name,
       email,
       phone,
@@ -90,6 +91,7 @@ export async function createBusiness(req, res) {
       upi_id,
     });
 
+    await invalidateBusinessCache(business.id);
     res.status(204).end();
   } catch (error) {
     if (error.code === "23505") {

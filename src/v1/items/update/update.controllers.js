@@ -1,5 +1,6 @@
 import pool from "../../../db/db.js";
 import { ApiError } from "../../../utils/ApiError.js";
+import { invalidateBusinessCache } from "../../../utils/cacheInvalidation.js";
 
 export async function updateItem(req, res) {
   const { businessId, itemId } = req.params;
@@ -47,6 +48,7 @@ export async function updateItem(req, res) {
 
     const result = await client.query(query, values);
     await client.query("COMMIT");
+    await invalidateBusinessCache(businessId);
     res.status(200).json(result.rows[0]);
   } catch (error) {
     await client.query("ROLLBACK");

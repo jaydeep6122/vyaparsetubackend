@@ -4,6 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
+import compression from "compression";
 import { errorHandler } from "./middlewares/error.middlewares.js";
 import authRoutes from "./v1/auth/auth.js";
 import businessesRouter from "./v1/businesses/businesses.js";
@@ -22,6 +23,9 @@ app.use(
     credentials: true,
   }),
 );
+
+// Response compression for faster payload delivery
+app.use(compression());
 
 // Development logging
 app.use(morgan("dev"));

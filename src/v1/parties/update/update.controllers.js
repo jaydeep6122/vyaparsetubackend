@@ -1,5 +1,6 @@
 import pool from "../../../db/db.js";
 import { ApiError } from "../../../utils/ApiError.js";
+import { invalidateBusinessCache } from "../../../utils/cacheInvalidation.js";
 
 const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
 
@@ -100,6 +101,7 @@ export async function updateParty(req, res) {
     ];
 
     const result = await pool.query(query, values);
+    await invalidateBusinessCache(businessId);
     res.status(200).json(result.rows[0]);
   } catch (error) {
     if (error.code === "23505") {

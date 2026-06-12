@@ -1,5 +1,6 @@
 import pool from "../../../db/db.js";
 import { ApiError } from "../../../utils/ApiError.js";
+import { invalidateBusinessCache } from "../../../utils/cacheInvalidation.js";
 
 const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
 
@@ -75,6 +76,7 @@ export async function deletePayment(req, res) {
     );
 
     await client.query("COMMIT");
+    await invalidateBusinessCache(businessId);
     res.status(204).end();
   } catch (error) {
     await client.query("ROLLBACK");

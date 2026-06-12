@@ -1,5 +1,6 @@
 import pool from "../../../db/db.js";
 import { ApiError } from "../../../utils/ApiError.js";
+import { invalidateBusinessCache } from "../../../utils/cacheInvalidation.js";
 
 export async function updateExpense(req, res) {
   const { businessId, expenseId } = req.params;
@@ -58,6 +59,7 @@ export async function updateExpense(req, res) {
       throw new ApiError(404, "Expense not found");
     }
 
+    await invalidateBusinessCache(businessId);
     res.status(200).json(result.rows[0]);
   } catch (error) {
     if (error.code === "23505") {

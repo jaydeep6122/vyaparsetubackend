@@ -1,32 +1,23 @@
-import pool from "../../../db/db.js";
-
-const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
+import { getCache, setCache } from "../../../utils/redisClient.js";
+import { cacheKeys } from "../../../utils/cacheKeys.js";
 
 export async function getStockStatusReport(req, res) {
   const { businessId } = req.params;
 
-  const result = await pool.query(
-    `SELECT id, name, hsn_code, measuring_unit
-     FROM items
-     WHERE business_id = $1
-     ORDER BY name ASC`,
-    [businessId]
-  );
+  const cacheKey = cacheKeys.dashboardStockStatus(businessId);
+  const cached = await getCache(cacheKey);
+  if (cached) {
+    return res.status(200).json(cached);
+  }
 
-  const items = result.rows.map((row) => ({
-    id: row.id,
-    name: row.name,
-    sku: null,
-    item_type: "product",
-    current_stock: 0,
-    purchase_price: 0,
-    sales_price: 0,
-    measuring_unit: row.measuring_unit,
-    stock_valuation: 0,
-  }));
+  // Stock tracking has been removed; return empty response
+  const result = {
+    low_stock_items: [],
+    out_of_stock_items: [],
+    total_items: 0,
+  };
 
-  res.status(200).json({
-    items,
-    total_valuation: 0,
-  });
+  await setCache(cacheKey, result, 300);
+
+  res.status(200).json(result);
 }

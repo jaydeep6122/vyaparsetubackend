@@ -1,5 +1,6 @@
 import pool from "../../../db/db.js";
 import { ApiError } from "../../../utils/ApiError.js";
+import { invalidateBusinessCache } from "../../../utils/cacheInvalidation.js";
 
 export async function createExpense(req, res) {
   const { businessId } = req.params;
@@ -49,6 +50,7 @@ export async function createExpense(req, res) {
     ];
 
     const result = await pool.query(query, values);
+    await invalidateBusinessCache(businessId);
     res.status(201).json(result.rows[0]);
   } catch (error) {
     if (error.code === "23505") {

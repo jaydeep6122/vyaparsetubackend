@@ -1,9 +1,17 @@
 import pool from "../../../db/db.js";
 import { ApiError } from "../../../utils/ApiError.js";
+import { getCache, setCache } from "../../../utils/redisClient.js";
+import { cacheKeys } from "../../../utils/cacheKeys.js";
 
 export async function listParties(req, res) {
   const { businessId } = req.params;
   const { party_type, search } = req.query;
+
+  const cacheKey = cacheKeys.partyList(businessId, party_type || "", search || "");
+  const cached = await getCache(cacheKey);
+  if (cached) {
+    return res.status(200).json(cached);
+  }
 
   let query = "SELECT * FROM parties WHERE business_id = $1";
   const values = [businessId];
@@ -24,11 +32,19 @@ export async function listParties(req, res) {
   query += " ORDER BY name ASC";
 
   const result = await pool.query(query, values);
+  await setCache(cacheKey, result.rows, 60);
   res.status(200).json(result.rows);
 }
 
 export async function getPartyById(req, res) {
   const { businessId, partyId } = req.params;
+
+  const cacheKey = cacheKeys.partyDetail(businessId, partyId);
+  const cached = await getCache(cacheKey);
+  if (cached) {
+    return res.status(200).json(cached);
+  }
+
   const result = await pool.query(
     "SELECT * FROM parties WHERE id = $1 AND business_id = $2",
     [partyId, businessId]
@@ -38,5 +54,6 @@ export async function getPartyById(req, res) {
     throw new ApiError(404, "Party not found");
   }
 
+  await setCache(cacheKey, result.rows[0], 60);
   res.status(200).json(result.rows[0]);
 }

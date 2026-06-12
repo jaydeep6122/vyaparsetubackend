@@ -1,4 +1,6 @@
 import pool from "../../../db/db.js";
+import { getCache, setCache } from "../../../utils/redisClient.js";
+import { cacheKeys } from "../../../utils/cacheKeys.js";
 
 const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
 
@@ -6,23 +8,32 @@ export async function getProfitAndLoss(req, res) {
   const { businessId } = req.params;
   const { from_date, to_date } = req.query;
 
+  const cacheKey = cacheKeys.dashboardProfitLoss(businessId, from_date || "", to_date || "");
+  const cached = await getCache(cacheKey);
+  if (cached) {
+    return res.status(200).json(cached);
+  }
+
   let invoiceFilter = "AND business_id = $1";
   let expenseFilter = "AND business_id = $1";
   const params = [businessId];
-  let idx = 2;
 
   if (from_date) {
-    invoiceFilter += ` AND invoice_date >= $${idx}`;
-    expenseFilter += ` AND expense_date >= $${idx}`;
-    params.push(new Date(from_date));
-    idx++;
+    invoiceFilter += ` AND invoice_date >= $2`;
+    expenseFilter += ` AND expense_date >= $2`;
   }
 
   if (to_date) {
-    invoiceFilter += ` AND invoice_date <= $${idx}`;
-    expenseFilter += ` AND expense_date <= $${idx}`;
-    params.push(new Date(to_date));
-    idx++;
+    invoiceFilter += ` AND invoice_date <= $3`;
+    expenseFilter += ` AND expense_date <= $3`;
+  }
+
+  const paramsWithDates = [businessId];
+  if (from_date) {
+    paramsWithDates.push(new Date(from_date));
+  }
+  if (to_date) {
+    paramsWithDates.push(new Date(to_date));
   }
 
   const salesQuery = `SELECT SUM(total_amount) as total FROM invoices WHERE invoice_type = 'sale' ${invoiceFilter}`;
@@ -31,11 +42,13 @@ export async function getProfitAndLoss(req, res) {
   const purchasesReturnQuery = `SELECT SUM(total_amount) as total FROM invoices WHERE invoice_type = 'purchase_return' ${invoiceFilter}`;
   const expensesQuery = `SELECT SUM(total_amount) as total FROM expenses WHERE 1=1 ${expenseFilter}`;
 
-  const salesRes = await pool.query(salesQuery, params);
-  const salesReturnRes = await pool.query(salesReturnQuery, params);
-  const purchasesRes = await pool.query(purchasesQuery, params);
-  const purchasesReturnRes = await pool.query(purchasesReturnQuery, params);
-  const expensesRes = await pool.query(expensesQuery, params);
+  const [salesRes, salesReturnRes, purchasesRes, purchasesReturnRes, expensesRes] = await Promise.all([
+    pool.query(salesQuery, paramsWithDates),
+    pool.query(salesReturnQuery, paramsWithDates),
+    pool.query(purchasesQuery, paramsWithDates),
+    pool.query(purchasesReturnQuery, paramsWithDates),
+    pool.query(expensesQuery, paramsWithDates),
+  ]);
 
   const grossSales = Number(salesRes.rows[0]?.total || 0);
   const salesReturns = Number(salesReturnRes.rows[0]?.total || 0);
@@ -48,7 +61,7 @@ export async function getProfitAndLoss(req, res) {
   const totalExpenses = round2(expensesRes.rows[0]?.total || 0);
   const netProfit = round2(netRevenue - netPurchases - totalExpenses);
 
-  res.status(200).json({
+  const result = {
     gross_sales: grossSales,
     sales_returns: salesReturns,
     net_revenue: netRevenue,
@@ -57,5 +70,9 @@ export async function getProfitAndLoss(req, res) {
     net_purchases: netPurchases,
     operating_expenses: totalExpenses,
     net_profit: netProfit,
-  });
+  };
+
+  await setCache(cacheKey, result, 300);
+
+  res.status(200).json(result);
 }
