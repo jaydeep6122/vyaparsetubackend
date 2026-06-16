@@ -6,11 +6,11 @@ export async function getDashboardSummary(req, res) {
   const { businessId } = req.params;
 
   const salesRes = await pool.query(
-    "SELECT SUM(total_amount) as total FROM invoices WHERE business_id = $1 AND invoice_type = 'sale'",
+    "SELECT SUM(total_amount) as total, SUM(tax_amount) as tax FROM invoices WHERE business_id = $1 AND invoice_type = 'sale'",
     [businessId]
   );
   const purchasesRes = await pool.query(
-    "SELECT SUM(total_amount) as total FROM invoices WHERE business_id = $1 AND invoice_type = 'purchase'",
+    "SELECT SUM(total_amount) as total, SUM(tax_amount) as tax FROM invoices WHERE business_id = $1 AND invoice_type = 'purchase'",
     [businessId]
   );
 
@@ -111,20 +111,63 @@ export async function getDashboardSummary(req, res) {
         Number(expFlow.exp_upi))
   );
 
-  const totalSales = round2(salesRes.rows[0]?.total || 0);
-  const totalPurchases = round2(purchasesRes.rows[0]?.total || 0);
-  const totalReceivables = round2(receivablesRes.rows[0]?.total || 0);
-  const totalPayables = round2(Math.abs(payablesRes.rows[0]?.total || 0));
-  const received = round2(totalSales - totalReceivables);
-  const totalPaid = round2(totalPurchases - totalPayables);
+  const salesTotal = Number(salesRes.rows[0]?.total || 0);
+  const salesTax = Number(salesRes.rows[0]?.tax || 0);
+  const salesBase = salesTotal - salesTax;
+
+  const purchasesTotal = Number(purchasesRes.rows[0]?.total || 0);
+  const purchasesTax = Number(purchasesRes.rows[0]?.tax || 0);
+  const purchasesBase = purchasesTotal - purchasesTax;
+
+  const receivablesTotal = Number(receivablesRes.rows[0]?.total || 0);
+  const salesTaxRatio = salesTotal > 0 ? salesTax / salesTotal : 0;
+  const receivablesTax = receivablesTotal * salesTaxRatio;
+  const receivablesBase = receivablesTotal - receivablesTax;
+
+  const payablesTotal = Math.abs(Number(payablesRes.rows[0]?.total || 0));
+  const purchasesTaxRatio = purchasesTotal > 0 ? purchasesTax / purchasesTotal : 0;
+  const payablesTax = payablesTotal * purchasesTaxRatio;
+  const payablesBase = payablesTotal - payablesTax;
+
+  const receivedTotal = salesTotal - receivablesTotal;
+  const receivedBase = salesBase - receivablesBase;
+  const receivedTax = salesTax - receivablesTax;
+
+  const totalPaidTotal = purchasesTotal - payablesTotal;
+  const totalPaidBase = purchasesBase - payablesBase;
+  const totalPaidTax = purchasesTax - payablesTax;
 
   res.status(200).json({
-    total_sales: totalSales,
-    total_purchases: totalPurchases,
-    total_receivables: totalReceivables,
-    total_payables: totalPayables,
-    received,
-    total_paid: totalPaid,
+    total_sales: {
+      base: round2(salesBase),
+      tax: round2(salesTax),
+      total: round2(salesTotal),
+    },
+    total_purchases: {
+      base: round2(purchasesBase),
+      tax: round2(purchasesTax),
+      total: round2(purchasesTotal),
+    },
+    total_receivables: {
+      base: round2(receivablesBase),
+      tax: round2(receivablesTax),
+      total: round2(receivablesTotal),
+    },
+    total_payables: {
+      base: round2(payablesBase),
+      tax: round2(payablesTax),
+      total: round2(payablesTotal),
+    },
+    received: {
+      base: round2(receivedBase),
+      tax: round2(receivedTax),
+      total: round2(receivedTotal),
+    },
+    total_paid: {
+      base: round2(totalPaidBase),
+      tax: round2(totalPaidTax),
+      total: round2(totalPaidTotal),
+    },
     low_stock_items_count: lowStockRes.rowCount,
     low_stock_items: lowStockRes.rows,
     cash_book: {
