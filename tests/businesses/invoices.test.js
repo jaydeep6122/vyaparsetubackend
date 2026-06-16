@@ -134,6 +134,54 @@ describe("Invoices Integration Tests", () => {
       expect(res.statusCode).toBe(201);
       expect(Number(res.body.paid_amount)).toBe(0);
     });
+
+    it("should create a purchase invoice without invoice_number successfully and auto-generate one starting with PUR-", async () => {
+      const res = await request(app)
+        .post(`/v1/businesses/${businessId}/invoices`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          party_id: partyId,
+          invoice_type: "purchase",
+          payment_mode: "cash",
+          items: [
+            {
+              item_id: itemId,
+              name: "Laptop",
+              quantity: 2,
+              unit_price: 30000
+            }
+          ]
+        });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.body.invoice_number).toMatch(/^PUR-/);
+
+      // Clean up the temporary purchase invoice
+      await request(app)
+        .delete(`/v1/businesses/${businessId}/invoices/${res.body.id}`)
+        .set("Authorization", `Bearer ${token}`);
+    });
+
+    it("should fail to create a sale invoice without invoice_number", async () => {
+      const res = await request(app)
+        .post(`/v1/businesses/${businessId}/invoices`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          party_id: partyId,
+          invoice_type: "sale",
+          payment_mode: "cash",
+          items: [
+            {
+              item_id: itemId,
+              name: "Laptop",
+              quantity: 1,
+              unit_price: 1000
+            }
+          ]
+        });
+
+      expect(res.statusCode).toBe(400);
+    });
   });
 
   describe("GET /v1/businesses/:businessId/invoices", () => {
@@ -196,6 +244,57 @@ describe("Invoices Integration Tests", () => {
       // Verify party balance is updated: unpaid is 60500 - 9000 = 51500
       const partyCheck = await pool.query("SELECT current_balance FROM parties WHERE id = $1", [partyId]);
       expect(Number(partyCheck.rows[0].current_balance)).toBe(51500);
+    });
+
+    it("should update a purchase invoice omitting invoice_number and reuse the existing invoice_number", async () => {
+      // 1. Create a purchase invoice with custom invoice number
+      const createRes = await request(app)
+        .post(`/v1/businesses/${businessId}/invoices`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          party_id: partyId,
+          invoice_number: "PUR-TEST-12345",
+          invoice_type: "purchase",
+          payment_mode: "cash",
+          items: [
+            {
+              item_id: itemId,
+              name: "Laptop",
+              quantity: 1,
+              unit_price: 500
+            }
+          ]
+        });
+      expect(createRes.statusCode).toBe(201);
+      const purchaseId = createRes.body.id;
+
+      // 2. Update it, omitting invoice_number in req.body
+      const updateRes = await request(app)
+        .put(`/v1/businesses/${businessId}/invoices/${purchaseId}`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          party_id: partyId,
+          invoice_type: "purchase",
+          payment_mode: "cash",
+          notes: "updated notes",
+          items: [
+            {
+              item_id: itemId,
+              name: "Laptop",
+              quantity: 1,
+              unit_price: 500
+            }
+          ]
+        });
+
+      expect(updateRes.statusCode).toBe(200);
+      expect(updateRes.body.invoice_number).toBe("PUR-TEST-12345");
+      expect(updateRes.body.notes).toBe("updated notes");
+
+      // Clean up the temporary purchase invoice
+      await request(app)
+        .delete(`/v1/businesses/${businessId}/invoices/${purchaseId}`)
+        .set("Authorization", `Bearer ${token}`);
     });
   });
 

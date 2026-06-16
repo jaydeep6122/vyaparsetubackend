@@ -75,9 +75,9 @@ export const createItemSchema = z.object({
 export const updateItemSchema = createItemSchema.partial();
 
 // Invoice Validation
-export const createInvoiceSchema = z.object({
+const invoiceBaseObject = z.object({
   party_id: z.string().uuid("Invalid party ID").optional().nullable(),
-  invoice_number: z.string().min(1, "Invoice number is required"),
+  invoice_number: z.string().optional().nullable(),
   invoice_type: z.enum(["sale", "purchase", "sale_return", "purchase_return"]),
   chalan_no: z.string().optional().nullable(),
   transport_cost: z.number().nonnegative("Transport cost must be non-negative").optional(),
@@ -101,7 +101,27 @@ export const createInvoiceSchema = z.object({
     .min(1, "At least one item is required"),
 });
 
-export const updateInvoiceSchema = createInvoiceSchema.partial();
+export const createInvoiceSchema = invoiceBaseObject.superRefine((data, ctx) => {
+  if (data.invoice_type !== "purchase" && (!data.invoice_number || data.invoice_number.trim() === "")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Invoice number is required",
+      path: ["invoice_number"],
+    });
+  }
+});
+
+export const updateInvoiceSchema = invoiceBaseObject.partial().superRefine((data, ctx) => {
+  if (data.invoice_type !== undefined && data.invoice_type !== "purchase") {
+    if (data.invoice_number !== undefined && (!data.invoice_number || data.invoice_number.trim() === "")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Invoice number cannot be empty",
+        path: ["invoice_number"],
+      });
+    }
+  }
+});
 
 // Payment Validation
 export const createPaymentSchema = z.object({

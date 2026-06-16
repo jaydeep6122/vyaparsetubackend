@@ -5,9 +5,9 @@ const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
 
 export async function createInvoice(req, res) {
   const { businessId } = req.params;
+  let { invoice_number } = req.body;
   const {
     party_id,
-    invoice_number,
     invoice_type,
     chalan_no,
     transport_cost = 0,
@@ -20,8 +20,15 @@ export async function createInvoice(req, res) {
     items = [],
   } = req.body;
 
-  if (!invoice_number || !invoice_type || !payment_mode) {
-    throw new ApiError(400, "invoice_number, invoice_type, and payment_mode are required");
+  if (invoice_type !== "purchase" && !invoice_number) {
+    throw new ApiError(400, "invoice_number is required");
+  }
+  if (!invoice_type || !payment_mode) {
+    throw new ApiError(400, "invoice_type and payment_mode are required");
+  }
+
+  if (!invoice_number && invoice_type === "purchase") {
+    invoice_number = `PUR-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
   }
 
   const validInvoiceTypes = ["sale", "purchase", "sale_return", "purchase_return"];
