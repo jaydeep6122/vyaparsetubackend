@@ -5,9 +5,9 @@ const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
 
 export async function updateInvoice(req, res) {
   const { businessId, invoiceId } = req.params;
+  let { invoice_number } = req.body;
   const {
     party_id,
-    invoice_number,
     invoice_type,
     chalan_no,
     transport_cost,
@@ -20,8 +20,11 @@ export async function updateInvoice(req, res) {
     items = [],
   } = req.body;
 
-  if (!invoice_number || !invoice_type || !payment_mode) {
-    throw new ApiError(400, "invoice_number, invoice_type, and payment_mode are required");
+  if (invoice_type !== "purchase" && !invoice_number) {
+    throw new ApiError(400, "invoice_number is required");
+  }
+  if (!invoice_type || !payment_mode) {
+    throw new ApiError(400, "invoice_type and payment_mode are required");
   }
 
   const validInvoiceTypes = ["sale", "purchase", "sale_return", "purchase_return"];
@@ -46,6 +49,14 @@ export async function updateInvoice(req, res) {
       throw new ApiError(404, "Invoice not found");
     }
     const oldInvoice = oldInvoiceRes.rows[0];
+
+    if (!invoice_number) {
+      if (invoice_type === "purchase") {
+        invoice_number = oldInvoice.invoice_number || `PUR-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      } else {
+        throw new ApiError(400, "invoice_number is required");
+      }
+    }
 
     if (oldInvoice.invoice_number !== invoice_number || oldInvoice.invoice_type !== invoice_type) {
       const dupCheck = await client.query(

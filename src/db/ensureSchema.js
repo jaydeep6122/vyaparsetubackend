@@ -38,11 +38,6 @@ export async function ensureSchema() {
       );
     `);
 
-    // Enable Row Level Security (RLS) on refresh_tokens
-    await pool.query(`
-      ALTER TABLE refresh_tokens ENABLE ROW LEVEL SECURITY;
-    `);
-
     // Ensure businesses table exists
     await pool.query(`
       CREATE TABLE IF NOT EXISTS businesses (
@@ -237,6 +232,22 @@ export async function ensureSchema() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_expenses_business_id ON expenses(business_id);`);
     // Drop stock_transactions table as we no longer track stock transactions
     await pool.query(`DROP TABLE IF EXISTS stock_transactions CASCADE;`);
+
+    // Dynamically check and enable Row Level Security (RLS) on public tables where it's disabled.
+    // Checking first prevents AccessExclusiveLock requests on already-secured tables, avoiding deadlocks in parallel test runs.
+    const rlsDisabledTables = await pool.query(`
+      SELECT relname 
+      FROM pg_class c 
+      JOIN pg_namespace n ON n.oid = c.relnamespace 
+      WHERE n.nspname = 'public' 
+        AND c.relkind = 'r' 
+        AND c.relrowsecurity = false 
+        AND c.relname IN ('users', 'refresh_tokens', 'businesses', 'parties', 'items', 'invoices', 'invoice_items', 'payments', 'expenses');
+    `);
+
+    for (const row of rlsDisabledTables.rows) {
+      await pool.query("ALTER TABLE " + row.relname + " ENABLE ROW LEVEL SECURITY;");
+    }
 
     console.log("Database schema checked and ensured successfully!");
   } catch (error) {
