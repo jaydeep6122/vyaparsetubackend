@@ -38,6 +38,11 @@ export async function ensureSchema() {
       );
     `);
 
+    // Enable Row Level Security (RLS) on refresh_tokens
+    await pool.query(`
+      ALTER TABLE refresh_tokens ENABLE ROW LEVEL SECURITY;
+    `);
+
     // Ensure businesses table exists
     await pool.query(`
       CREATE TABLE IF NOT EXISTS businesses (
