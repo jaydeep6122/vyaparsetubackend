@@ -111,11 +111,20 @@ export async function getDashboardSummary(req, res) {
         Number(expFlow.exp_upi))
   );
 
+  const totalSales = round2(salesRes.rows[0]?.total || 0);
+  const totalPurchases = round2(purchasesRes.rows[0]?.total || 0);
+  const totalReceivables = round2(receivablesRes.rows[0]?.total || 0);
+  const totalPayables = round2(Math.abs(payablesRes.rows[0]?.total || 0));
+  const received = round2(totalSales - totalReceivables);
+  const totalPaid = round2(totalPurchases - totalPayables);
+
   res.status(200).json({
-    total_sales: round2(salesRes.rows[0]?.total || 0),
-    total_purchases: round2(purchasesRes.rows[0]?.total || 0),
-    total_receivables: round2(receivablesRes.rows[0]?.total || 0),
-    total_payables: round2(Math.abs(payablesRes.rows[0]?.total || 0)),
+    total_sales: totalSales,
+    total_purchases: totalPurchases,
+    total_receivables: totalReceivables,
+    total_payables: totalPayables,
+    received,
+    total_paid: totalPaid,
     low_stock_items_count: lowStockRes.rowCount,
     low_stock_items: lowStockRes.rows,
     cash_book: {
