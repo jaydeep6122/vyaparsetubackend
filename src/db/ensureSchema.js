@@ -153,6 +153,7 @@ export async function ensureSchema() {
         transport_cost NUMERIC(15, 2) DEFAULT 0.00,
         invoice_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         due_date TIMESTAMP WITH TIME ZONE,
+        delivery_date TIMESTAMP WITH TIME ZONE,
         sub_total NUMERIC(15, 2) NOT NULL,
         tax_amount NUMERIC(15, 2) DEFAULT 0.00,
         discount_amount NUMERIC(15, 2) DEFAULT 0.00,
@@ -170,6 +171,7 @@ export async function ensureSchema() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_invoices_party_id ON invoices(party_id);`);
     await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS chalan_no VARCHAR(100);`);
     await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS transport_cost NUMERIC(15, 2) DEFAULT 0.00;`);
+    await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS delivery_date TIMESTAMP WITH TIME ZONE;`);
 
     // Ensure invoice_items table exists
     await pool.query(`
