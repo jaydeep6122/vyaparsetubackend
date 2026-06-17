@@ -13,6 +13,7 @@ export async function createInvoice(req, res) {
     transport_cost = 0,
     invoice_date,
     due_date,
+    delivery_date,
     discount_amount = 0,
     paid_amount = 0,
     payment_mode,
@@ -137,9 +138,9 @@ export async function createInvoice(req, res) {
     const invoiceQuery = `
       INSERT INTO invoices (
         business_id, party_id, invoice_number, invoice_type, chalan_no, transport_cost, invoice_date, 
-        due_date, sub_total, tax_amount, discount_amount, total_amount, 
+        due_date, delivery_date, sub_total, tax_amount, discount_amount, total_amount, 
         paid_amount, payment_status, payment_mode, notes
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
       RETURNING *
     `;
 
@@ -152,6 +153,7 @@ export async function createInvoice(req, res) {
       Number(transport_cost || 0),
       invoice_date ? new Date(invoice_date) : new Date(),
       due_date ? new Date(due_date) : null,
+      delivery_date ? new Date(delivery_date) : null,
       round2(calcSubtotal),
       round2(calcTaxAmount),
       round2(calcDiscountAmount),

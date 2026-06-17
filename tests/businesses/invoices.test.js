@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "@jest/globals";
 import request from "supertest";
 import app from "../../src/app.js";
 import pool from "../../src/db/db.js";
+import { ensureSchema } from "../../src/db/ensureSchema.js";
 
 describe("Invoices Integration Tests", () => {
   let token;
@@ -13,6 +14,7 @@ describe("Invoices Integration Tests", () => {
   let createdInvoiceId;
 
   beforeAll(async () => {
+    await ensureSchema();
     testUserEmail = `inv_user_${Math.random().toString(36).substring(2, 11)}@example.com`;
     // Register user
     const signupRes = await request(app)
@@ -81,6 +83,7 @@ describe("Invoices Integration Tests", () => {
           discount_amount: 0,
           chalan_no: "CH-12345",
           transport_cost: 2500,
+          delivery_date: "2026-06-20T10:00:00.000Z",
           items: [
             {
               item_id: itemId,
@@ -98,6 +101,8 @@ describe("Invoices Integration Tests", () => {
       expect(res.body.chalan_no).toBe("CH-12345");
       expect(Number(res.body.transport_cost)).toBe(2500);
       expect(Number(res.body.total_amount)).toBe(61500);
+      expect(res.body.delivery_date).toBeDefined();
+      expect(new Date(res.body.delivery_date).toISOString()).toBe("2026-06-20T10:00:00.000Z");
       createdInvoiceId = res.body.id;
 
       // Verify party balance is updated: current_balance should be 52500 (receivable)
@@ -225,6 +230,7 @@ describe("Invoices Integration Tests", () => {
           notes: "Updated delivery terms",
           chalan_no: "CH-67890",
           transport_cost: 1500,
+          delivery_date: "2026-06-22T14:30:00.000Z",
           items: [
             {
               item_id: itemId,
@@ -240,6 +246,8 @@ describe("Invoices Integration Tests", () => {
       expect(res.body.notes).toBe("Updated delivery terms");
       expect(res.body.chalan_no).toBe("CH-67890");
       expect(Number(res.body.transport_cost)).toBe(1500);
+      expect(res.body.delivery_date).toBeDefined();
+      expect(new Date(res.body.delivery_date).toISOString()).toBe("2026-06-22T14:30:00.000Z");
 
       // Verify party balance is updated: unpaid is 60500 - 9000 = 51500
       const partyCheck = await pool.query("SELECT current_balance FROM parties WHERE id = $1", [partyId]);

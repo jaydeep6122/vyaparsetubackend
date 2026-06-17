@@ -83,6 +83,7 @@ const invoiceBaseObject = z.object({
   transport_cost: z.number().nonnegative("Transport cost must be non-negative").optional(),
   invoice_date: z.string().optional(),
   due_date: z.string().optional().nullable(),
+  delivery_date: z.string().optional().nullable(),
   discount_amount: z.number().nonnegative().optional(),
   paid_amount: z.number().nonnegative().optional(),
   payment_mode: z.enum(["cash", "bank", "upi", "credit", "multiple"]),

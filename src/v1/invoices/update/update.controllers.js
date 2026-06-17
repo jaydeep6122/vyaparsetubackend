@@ -13,6 +13,7 @@ export async function updateInvoice(req, res) {
     transport_cost,
     invoice_date,
     due_date,
+    delivery_date,
     discount_amount = 0,
     paid_amount = 0,
     payment_mode,
@@ -182,16 +183,17 @@ export async function updateInvoice(req, res) {
         transport_cost = $5,
         invoice_date = $6,
         due_date = $7,
-        sub_total = $8,
-        tax_amount = $9,
-        discount_amount = $10,
-        total_amount = $11,
-        paid_amount = $12,
-        payment_status = $13,
-        payment_mode = $14,
-        notes = $15,
+        delivery_date = $8,
+        sub_total = $9,
+        tax_amount = $10,
+        discount_amount = $11,
+        total_amount = $12,
+        paid_amount = $13,
+        payment_status = $14,
+        payment_mode = $15,
+        notes = $16,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $16
+      WHERE id = $17
       RETURNING *
     `;
 
@@ -203,6 +205,7 @@ export async function updateInvoice(req, res) {
       transport_cost === undefined ? oldInvoice.transport_cost : Number(transport_cost || 0),
       invoice_date ? new Date(invoice_date) : oldInvoice.invoice_date,
       due_date ? new Date(due_date) : null,
+      delivery_date === undefined ? oldInvoice.delivery_date : (delivery_date ? new Date(delivery_date) : null),
       round2(calcSubtotal),
       round2(calcTaxAmount),
       round2(calcDiscountAmount),
