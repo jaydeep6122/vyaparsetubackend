@@ -235,6 +235,112 @@ export async function ensureSchema() {
     // Drop stock_transactions table as we no longer track stock transactions
     await pool.query(`DROP TABLE IF EXISTS stock_transactions CASCADE;`);
 
+    // Ensure kiln_factories table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS kiln_factories (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        location TEXT,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Ensure kiln_workers table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS kiln_workers (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        kiln_factory_id UUID NOT NULL REFERENCES kiln_factories(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        phone VARCHAR(50),
+        role VARCHAR(50) NOT NULL CHECK (role IN ('moulder', 'stacker', 'loader', 'other')),
+        wage_type VARCHAR(50) NOT NULL CHECK (wage_type IN ('piece_rate', 'daily_wage', 'monthly_salary')),
+        base_rate NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        internal_loader_rate NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        advance_balance NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        unsettled_khoraki NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        unsettled_earnings NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT unique_worker_name_per_factory UNIQUE (kiln_factory_id, name)
+      );
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_kiln_workers_factory_id ON kiln_workers(kiln_factory_id);`);
+
+    // Ensure kiln_settlements table exists (must exist before logs/transactions which reference it)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS kiln_settlements (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        kiln_factory_id UUID NOT NULL REFERENCES kiln_factories(id) ON DELETE CASCADE,
+        worker_id UUID NOT NULL REFERENCES kiln_workers(id) ON DELETE CASCADE,
+        settlement_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        gross_earnings NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        khoraki_deducted NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        peshgi_recovered NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        net_payout NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        payment_mode VARCHAR(50) NOT NULL CHECK (payment_mode IN ('cash', 'bank', 'upi')),
+        reference_number VARCHAR(100),
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_kiln_settlements_factory_id ON kiln_settlements(kiln_factory_id);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_kiln_settlements_worker_id ON kiln_settlements(worker_id);`);
+
+    // Ensure kiln_work_logs table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS kiln_work_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        kiln_factory_id UUID NOT NULL REFERENCES kiln_factories(id) ON DELETE CASCADE,
+        date DATE NOT NULL DEFAULT CURRENT_DATE,
+        type1_worker_id UUID REFERENCES kiln_workers(id) ON DELETE SET NULL,
+        type2_worker_id UUID REFERENCES kiln_workers(id) ON DELETE SET NULL,
+        type3_worker_id UUID REFERENCES kiln_workers(id) ON DELETE SET NULL,
+        operation_type VARCHAR(50) NOT NULL CHECK (operation_type IN ('production', 'transfer_to_kiln', 'load_outward', 'load_inward', 'load_internal')),
+        quantity INTEGER NOT NULL CHECK (quantity >= 0),
+        rate_applied_type1 NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        rate_applied_type2 NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        rate_applied_type3 NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        earnings_type1 NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        earnings_type2 NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        earnings_type3 NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        is_settled BOOLEAN NOT NULL DEFAULT FALSE,
+        settlement_id UUID REFERENCES kiln_settlements(id) ON DELETE SET NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_kiln_work_logs_factory_id ON kiln_work_logs(kiln_factory_id);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_kiln_work_logs_type1_worker ON kiln_work_logs(type1_worker_id);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_kiln_work_logs_type2_worker ON kiln_work_logs(type2_worker_id);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_kiln_work_logs_type3_worker ON kiln_work_logs(type3_worker_id);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_kiln_work_logs_settlement ON kiln_work_logs(settlement_id);`);
+
+    // Ensure kiln_transactions table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS kiln_transactions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        kiln_factory_id UUID NOT NULL REFERENCES kiln_factories(id) ON DELETE CASCADE,
+        worker_id UUID NOT NULL REFERENCES kiln_workers(id) ON DELETE CASCADE,
+        date DATE NOT NULL DEFAULT CURRENT_DATE,
+        transaction_type VARCHAR(50) NOT NULL CHECK (transaction_type IN ('peshgi', 'khoraki', 'extra_deduction', 'manual_payout')),
+        amount NUMERIC(15, 2) NOT NULL CHECK (amount >= 0),
+        payment_mode VARCHAR(50) NOT NULL CHECK (payment_mode IN ('cash', 'bank', 'upi')),
+        reference_number VARCHAR(100),
+        description TEXT,
+        is_settled BOOLEAN NOT NULL DEFAULT FALSE,
+        settlement_id UUID REFERENCES kiln_settlements(id) ON DELETE SET NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_kiln_transactions_factory_id ON kiln_transactions(kiln_factory_id);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_kiln_transactions_worker_id ON kiln_transactions(worker_id);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_kiln_transactions_settlement ON kiln_transactions(settlement_id);`);
+
     // Dynamically check and enable Row Level Security (RLS) on public tables where it's disabled.
     // Checking first prevents AccessExclusiveLock requests on already-secured tables, avoiding deadlocks in parallel test runs.
     const rlsDisabledTables = await pool.query(`
@@ -244,7 +350,7 @@ export async function ensureSchema() {
       WHERE n.nspname = 'public' 
         AND c.relkind = 'r' 
         AND c.relrowsecurity = false 
-        AND c.relname IN ('users', 'refresh_tokens', 'businesses', 'parties', 'items', 'invoices', 'invoice_items', 'payments', 'expenses');
+        AND c.relname IN ('users', 'refresh_tokens', 'businesses', 'parties', 'items', 'invoices', 'invoice_items', 'payments', 'expenses', 'kiln_factories', 'kiln_workers', 'kiln_settlements', 'kiln_work_logs', 'kiln_transactions');
     `);
 
     for (const row of rlsDisabledTables.rows) {

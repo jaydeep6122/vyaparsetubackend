@@ -155,3 +155,83 @@ export const updateExpenseSchema = createExpenseSchema.partial();
 export const refreshTokenSchema = z.object({
   refresh_token: z.string().min(1, "Refresh token is required"),
 });
+
+// Kiln Factory Validation
+export const createKilnFactorySchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  location: z.string().optional().nullable(),
+});
+
+export const updateKilnFactorySchema = createKilnFactorySchema.partial();
+
+// Kiln Worker Validation
+export const createKilnWorkerSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  phone: z.string().optional().nullable(),
+  role: z.enum(['moulder', 'stacker', 'loader', 'other']),
+  wage_type: z.enum(['piece_rate', 'daily_wage', 'monthly_salary']),
+  base_rate: z.number().nonnegative("Base rate must be non-negative").optional().default(0),
+  internal_loader_rate: z.number().nonnegative("Internal loader rate must be non-negative").optional().default(0),
+  is_active: z.boolean().optional().default(true),
+});
+
+export const updateKilnWorkerSchema = createKilnWorkerSchema.partial();
+
+// Kiln Work Log Validation
+export const createKilnWorkLogSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format").optional().nullable(),
+  type1_worker_id: z.string().uuid("Invalid moulder ID").optional().nullable(),
+  type2_worker_id: z.string().uuid("Invalid stacker ID").optional().nullable(),
+  type3_worker_id: z.string().uuid("Invalid loader ID").optional().nullable(),
+  operation_type: z.enum(['production', 'transfer_to_kiln', 'load_outward', 'load_inward', 'load_internal']),
+  quantity: z.number().int().nonnegative("Quantity must be non-negative"),
+}).superRefine((data, ctx) => {
+  if (data.operation_type === "production" && !data.type1_worker_id) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Moulder (Type 1 worker) is required for production log",
+      path: ["type1_worker_id"],
+    });
+  }
+  if (data.operation_type === "transfer_to_kiln" && !data.type2_worker_id) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Stacker (Type 2 worker) is required for transferring to kiln",
+      path: ["type2_worker_id"],
+    });
+  }
+  if (['load_outward', 'load_inward', 'load_internal'].includes(data.operation_type) && !data.type3_worker_id) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Loader (Type 3 worker) is required for loader log operations",
+      path: ["type3_worker_id"],
+    });
+  }
+});
+
+// Kiln Cash Transaction Validation
+export const createKilnTransactionSchema = z.object({
+  worker_id: z.string().uuid("Invalid worker ID"),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format").optional(),
+  transaction_type: z.enum(['peshgi', 'khoraki', 'extra_deduction', 'manual_payout']),
+  amount: z.number().nonnegative("Amount must be non-negative"),
+  payment_mode: z.enum(['cash', 'bank', 'upi']),
+  reference_number: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+});
+
+// Kiln Manual Settlement Validation
+export const createKilnSettlementSchema = z.object({
+  worker_id: z.string().uuid("Invalid worker ID"),
+  settlement_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Settlement date must be in YYYY-MM-DD format").optional(),
+  start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Start date must be in YYYY-MM-DD format"),
+  end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "End date must be in YYYY-MM-DD format"),
+  gross_earnings: z.number().nonnegative("Gross earnings must be non-negative"),
+  khoraki_deducted: z.number().nonnegative("Khoraki deducted must be non-negative"),
+  peshgi_recovered: z.number().nonnegative("Peshgi recovered must be non-negative"),
+  net_payout: z.number().nonnegative("Net payout must be non-negative"),
+  payment_mode: z.enum(['cash', 'bank', 'upi']),
+  reference_number: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
