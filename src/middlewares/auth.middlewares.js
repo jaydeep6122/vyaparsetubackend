@@ -59,3 +59,26 @@ export const requireBusinessOwner = asyncHandler(async (req, res, next) => {
   next();
 });
 
+export const requireFactoryOwner = asyncHandler(async (req, res, next) => {
+  const factoryId = req.params.factoryId || req.body.factoryId || req.query.factoryId;
+  const userId = req.user?.id;
+
+  if (!factoryId) {
+    throw new ApiError(400, "Factory ID is required");
+  }
+
+  if (!userId) {
+    throw new ApiError(401, "Authentication is required");
+  }
+
+  const query = "SELECT id FROM kiln_factories WHERE id = $1 AND user_id = $2";
+  const result = await pool.query(query, [factoryId, userId]);
+
+  if (result.rowCount === 0) {
+    throw new ApiError(403, "You do not have permission to access this factory");
+  }
+
+  next();
+});
+
+
