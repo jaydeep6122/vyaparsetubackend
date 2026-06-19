@@ -235,6 +235,60 @@ export async function ensureSchema() {
     // Drop stock_transactions table as we no longer track stock transactions
     await pool.query(`DROP TABLE IF EXISTS stock_transactions CASCADE;`);
 
+    // Ensure factories table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS factories (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        location VARCHAR(255),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_factories_user_id ON factories(user_id);`);
+
+    // Ensure workers table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS workers (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        factory_id UUID NOT NULL REFERENCES factories(id) ON DELETE CASCADE,
+        name VARCHAR(255) NOT NULL,
+        type VARCHAR(50) NOT NULL CHECK (type IN ('producer_molder', 'kiln_worker', 'truck_worker')),
+        rate_per_1000 NUMERIC(10, 2) NOT NULL,
+        total_bricks INTEGER DEFAULT 0,
+        total_amount NUMERIC(15, 2) DEFAULT 0,
+        total_money_given NUMERIC(15, 2) DEFAULT 0,
+        status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'inactive')),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT unique_worker_name_per_factory UNIQUE (factory_id, name)
+      );
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_workers_factory_id ON workers(factory_id);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_workers_type ON workers(type);`);
+
+    // Ensure transaction_logs table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS transaction_logs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        factory_id UUID NOT NULL REFERENCES factories(id) ON DELETE CASCADE,
+        type VARCHAR(50) NOT NULL CHECK (type IN ('handoff', 'direct', 'truck_dist', 'money_given')),
+        kiln_worker_id UUID REFERENCES workers(id),
+        producer_molder_id UUID REFERENCES workers(id),
+        worker_id UUID REFERENCES workers(id),
+        truck_worker_ids JSONB,
+        quantity INTEGER,
+        amount NUMERIC(15, 2),
+        date DATE NOT NULL,
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_transaction_logs_factory_id ON transaction_logs(factory_id);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_transaction_logs_date ON transaction_logs(date);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_transaction_logs_type ON transaction_logs(type);`);
+
     // Dynamically check and enable Row Level Security (RLS) on public tables where it's disabled.
     // Checking first prevents AccessExclusiveLock requests on already-secured tables, avoiding deadlocks in parallel test runs.
     const rlsDisabledTables = await pool.query(`
@@ -244,7 +298,7 @@ export async function ensureSchema() {
       WHERE n.nspname = 'public' 
         AND c.relkind = 'r' 
         AND c.relrowsecurity = false 
-        AND c.relname IN ('users', 'refresh_tokens', 'businesses', 'parties', 'items', 'invoices', 'invoice_items', 'payments', 'expenses');
+        AND c.relname IN ('users', 'refresh_tokens', 'businesses', 'parties', 'items', 'invoices', 'invoice_items', 'payments', 'expenses', 'factories', 'workers', 'transaction_logs');
     `);
 
     for (const row of rlsDisabledTables.rows) {
