@@ -32,9 +32,17 @@ export const createHandoffSchema = z.object({
 
 export const createDirectSchema = z.object({
   worker_id: z.string().uuid("Invalid worker ID"),
-  quantity: z.number().int().positive("Quantity must be a positive integer"),
+  quantity: z.number().int().positive("Quantity must be a positive integer").optional().nullable(),
+  amount: z.number().positive("Amount must be positive").optional().nullable(),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
   notes: z.string().optional().nullable(),
+}).refine((data) => {
+  const hasQuantity = data.quantity !== undefined && data.quantity !== null;
+  const hasAmount = data.amount !== undefined && data.amount !== null;
+  return (hasQuantity || hasAmount) && !(hasQuantity && hasAmount);
+}, {
+  message: "Either quantity or amount must be provided, but not both",
+  path: ["quantity"],
 });
 
 export const createTruckDistSchema = z.object({
