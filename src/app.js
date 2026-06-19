@@ -7,7 +7,6 @@ import rateLimit from "express-rate-limit";
 import { errorHandler } from "./middlewares/error.middlewares.js";
 import authRoutes from "./v1/auth/auth.js";
 import businessesRouter from "./v1/businesses/businesses.js";
-import factoriesRouter from "./v1/factories/factories.js";
 import logger from "./utils/logger.js";
 import { readFileSync } from "fs";
 
@@ -47,7 +46,6 @@ app.get("/", (req, res) => {
 // API routes
 app.use("/v1/auth", authRoutes);
 app.use("/v1/businesses", businessesRouter);
-app.use("/v1/factories", factoriesRouter);
 // Error handling middleware MUST be registered last
 app.use(errorHandler);
 
