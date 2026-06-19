@@ -82,7 +82,7 @@ export async function getFactorySummary(req, res) {
 
   const wageTotalsQuery = `
     SELECT
-      COALESCE(SUM(t.quantity), 0) AS total_bricks_produced,
+      COALESCE(SUM(CASE WHEN t.is_in != FALSE THEN t.quantity ELSE 0 END), 0) AS total_bricks_produced,
       COALESCE(SUM(t.amount), 0) AS total_amount_owed
     FROM transaction_logs t
     WHERE t.factory_id = $1 AND t.type != 'money_given'${filterClause}

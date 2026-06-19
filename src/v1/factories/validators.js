@@ -50,6 +50,7 @@ export const createTruckDistSchema = z.object({
   total_quantity: z.number().int().positive("Total quantity must be a positive integer"),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD"),
   notes: z.string().optional().nullable(),
+  is_in: z.boolean().optional().default(true),
 });
 
 export const createMoneyGivenSchema = z.object({
