@@ -39,7 +39,7 @@ export async function createDirect(req, res) {
 
 export async function createTruckDistribution(req, res) {
   const { factoryId } = req.params;
-  const { truck_worker_ids, total_quantity, date, notes } = req.body;
+  const { truck_worker_ids, total_quantity, date, notes, is_in } = req.body;
 
   const result = await createTruckDistService({
     factoryId,
@@ -47,6 +47,7 @@ export async function createTruckDistribution(req, res) {
     totalQuantity: total_quantity,
     date,
     notes,
+    isIn: is_in,
   });
 
   res.status(201).json(result);

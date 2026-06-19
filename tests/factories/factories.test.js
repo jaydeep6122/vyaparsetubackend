@@ -348,6 +348,30 @@ describe("Brick Factory Wage System Integration Tests", () => {
       expect(Number(res.body.updates[1].total_amount)).toBe(300);
     });
 
+    it("POST truck-distribution - should create truck distribution with is_in: false", async () => {
+      const res = await request(app)
+        .post(`/v1/factories/${factoryId}/transactions/truck-distribution`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          truck_worker_ids: [truckWorker1Id, truckWorker2Id],
+          total_quantity: 4000,
+          date: today,
+          notes: "Outgoing truck distribution",
+          is_in: false,
+        });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.body.transaction.type).toBe("truck_dist");
+      expect(res.body.transaction.is_in).toBe(false);
+      expect(res.body.per_worker_quantity).toBe(2000);
+      expect(res.body.updates.length).toBe(2);
+      // truck workers had 1500 bricks previously (300 amount). Now they get 2000 more (400 amount).
+      // so total_amount should be 300 + 400 = 700.
+      // total_bricks should be 1500 + 2000 = 3500.
+      expect(Number(res.body.updates[0].total_bricks)).toBe(3500);
+      expect(Number(res.body.updates[0].total_amount)).toBe(700);
+    });
+
     it("POST truck-distribution - should fail with non-existent worker", async () => {
       const res = await request(app)
         .post(`/v1/factories/${factoryId}/transactions/truck-distribution`)
@@ -402,7 +426,7 @@ describe("Brick Factory Wage System Integration Tests", () => {
 
       expect(res.statusCode).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
-      expect(res.body.length).toBe(5);
+      expect(res.body.length).toBe(6);
     });
 
     it("GET /v1/factories/:factoryId/transactions - should filter by type", async () => {
@@ -473,7 +497,8 @@ describe("Brick Factory Wage System Integration Tests", () => {
         .set("Authorization", `Bearer ${token}`);
 
       expect(res.statusCode).toBe(200);
-      // bricks: handoff(5000 each for 2 workers) + direct(2000) + truck(3000) = 15000
+      // bricks: handoff(5000) + direct(2000) + truck(3000) = 10000
+      // Note: the truck(4000) transaction with is_in: false is excluded from total_bricks_produced.
       expect(Number(res.body.total_bricks_produced)).toBe(10000);
       expect(res.body.workers_summary.length).toBe(4);
     });

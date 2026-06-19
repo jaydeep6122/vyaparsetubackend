@@ -27,8 +27,8 @@ export async function createHandoffService({ factoryId, kilnWorkerId, producerMo
     const producerAmount = Math.round(quantity * (Number(producerMolder.rows[0].rate_per_1000) / 1000) * 100) / 100;
 
     const transactionResult = await client.query(
-      `INSERT INTO transaction_logs (factory_id, type, kiln_worker_id, producer_molder_id, quantity, amount, date, notes)
-       VALUES ($1, 'handoff', $2, $3, $4, $5, $6, $7)
+      `INSERT INTO transaction_logs (factory_id, type, kiln_worker_id, producer_molder_id, quantity, amount, date, notes, is_in)
+       VALUES ($1, 'handoff', $2, $3, $4, $5, $6, $7, TRUE)
        RETURNING *`,
       [factoryId, kilnWorkerId, producerMolderId, quantity, kilnAmount + producerAmount, date, notes || null]
     );
@@ -103,8 +103,8 @@ export async function createDirectService({ factoryId, workerId, quantity, amoun
     }
 
     const transactionResult = await client.query(
-      `INSERT INTO transaction_logs (factory_id, type, worker_id, quantity, amount, date, notes)
-       VALUES ($1, 'direct', $2, $3, $4, $5, $6)
+      `INSERT INTO transaction_logs (factory_id, type, worker_id, quantity, amount, date, notes, is_in)
+       VALUES ($1, 'direct', $2, $3, $4, $5, $6, TRUE)
        RETURNING *`,
       [factoryId, workerId, finalQuantity, finalAmount, date, notes || null]
     );
@@ -137,7 +137,7 @@ export async function createDirectService({ factoryId, workerId, quantity, amoun
   }
 }
 
-export async function createTruckDistService({ factoryId, truckWorkerIds, totalQuantity, date, notes }) {
+export async function createTruckDistService({ factoryId, truckWorkerIds, totalQuantity, date, notes, isIn = true }) {
   const client = await pool.connect();
 
   try {
@@ -161,10 +161,10 @@ export async function createTruckDistService({ factoryId, truckWorkerIds, totalQ
     const perWorkerQuantity = Math.floor(totalQuantity / truckWorkerIds.length);
 
     const transactionResult = await client.query(
-      `INSERT INTO transaction_logs (factory_id, type, truck_worker_ids, quantity, date, notes)
-       VALUES ($1, 'truck_dist', $2, $3, $4, $5)
+      `INSERT INTO transaction_logs (factory_id, type, truck_worker_ids, quantity, date, notes, is_in)
+       VALUES ($1, 'truck_dist', $2, $3, $4, $5, $6)
        RETURNING *`,
-      [factoryId, JSON.stringify(truckWorkerIds), totalQuantity, date, notes || null]
+      [factoryId, JSON.stringify(truckWorkerIds), totalQuantity, date, notes || null, isIn]
     );
 
     const updates = [];
@@ -222,8 +222,8 @@ export async function createMoneyGivenService({ factoryId, workerId, amount, dat
     }
 
     const transactionResult = await client.query(
-      `INSERT INTO transaction_logs (factory_id, type, worker_id, amount, date, notes)
-       VALUES ($1, 'money_given', $2, $3, $4, $5)
+      `INSERT INTO transaction_logs (factory_id, type, worker_id, amount, date, notes, is_in)
+       VALUES ($1, 'money_given', $2, $3, $4, $5, TRUE)
        RETURNING *`,
       [factoryId, workerId, amount, date, notes || null]
     );

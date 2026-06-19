@@ -282,12 +282,14 @@ export async function ensureSchema() {
         amount NUMERIC(15, 2),
         date DATE NOT NULL,
         notes TEXT,
+        is_in BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_transaction_logs_factory_id ON transaction_logs(factory_id);`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_transaction_logs_date ON transaction_logs(date);`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_transaction_logs_type ON transaction_logs(type);`);
+    await pool.query(`ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS is_in BOOLEAN DEFAULT TRUE;`);
 
     // Dynamically check and enable Row Level Security (RLS) on public tables where it's disabled.
     // Checking first prevents AccessExclusiveLock requests on already-secured tables, avoiding deadlocks in parallel test runs.
