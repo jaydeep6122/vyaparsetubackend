@@ -77,7 +77,7 @@ export async function createHandoffService({ factoryId, kilnWorkerId, producerMo
   }
 }
 
-export async function createDirectService({ factoryId, workerId, quantity, date, notes }) {
+export async function createDirectService({ factoryId, workerId, quantity, amount, date, notes }) {
   const client = await pool.connect();
 
   try {
@@ -91,13 +91,22 @@ export async function createDirectService({ factoryId, workerId, quantity, date,
       throw new ApiError(404, "Worker not found in this factory");
     }
 
-    const amount = Math.round(quantity * (Number(worker.rows[0].rate_per_1000) / 1000) * 100) / 100;
+    let finalAmount;
+    let finalQuantity;
+
+    if (amount !== undefined && amount !== null) {
+      finalAmount = amount;
+      finalQuantity = null;
+    } else {
+      finalAmount = Math.round(quantity * (Number(worker.rows[0].rate_per_1000) / 1000) * 100) / 100;
+      finalQuantity = quantity;
+    }
 
     const transactionResult = await client.query(
       `INSERT INTO transaction_logs (factory_id, type, worker_id, quantity, amount, date, notes)
        VALUES ($1, 'direct', $2, $3, $4, $5, $6)
        RETURNING *`,
-      [factoryId, workerId, quantity, amount, date, notes || null]
+      [factoryId, workerId, finalQuantity, finalAmount, date, notes || null]
     );
 
     await client.query(
@@ -106,7 +115,7 @@ export async function createDirectService({ factoryId, workerId, quantity, date,
         total_amount = total_amount + $2,
         updated_at = CURRENT_TIMESTAMP
        WHERE id = $3`,
-      [quantity, amount, workerId]
+      [finalQuantity || 0, finalAmount, workerId]
     );
 
     await client.query("COMMIT");

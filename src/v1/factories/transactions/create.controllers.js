@@ -23,12 +23,13 @@ export async function createHandoff(req, res) {
 
 export async function createDirect(req, res) {
   const { factoryId } = req.params;
-  const { worker_id, quantity, date, notes } = req.body;
+  const { worker_id, quantity, amount, date, notes } = req.body;
 
   const result = await createDirectService({
     factoryId,
     workerId: worker_id,
     quantity,
+    amount,
     date,
     notes,
   });

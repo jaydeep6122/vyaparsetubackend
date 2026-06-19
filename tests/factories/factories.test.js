@@ -283,6 +283,51 @@ describe("Brick Factory Wage System Integration Tests", () => {
       expect(Number(res.body.updates.total_bricks)).toBe(7000);
     });
 
+    it("POST direct - should create direct entry transaction with amount directly", async () => {
+      const res = await request(app)
+        .post(`/v1/factories/${factoryId}/transactions/direct`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          worker_id: producerMolderId,
+          amount: 1500,
+          date: today,
+          notes: "Direct entry by amount",
+        });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.body.transaction.type).toBe("direct");
+      expect(res.body.transaction.quantity).toBeNull();
+      expect(Number(res.body.transaction.amount)).toBe(1500);
+      expect(Number(res.body.updates.total_amount)).toBe(5350); // 3850 + 1500
+      expect(Number(res.body.updates.total_bricks)).toBe(7000); // unaffected
+    });
+
+    it("POST direct - should fail when both quantity and amount are provided", async () => {
+      const res = await request(app)
+        .post(`/v1/factories/${factoryId}/transactions/direct`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          worker_id: producerMolderId,
+          quantity: 2000,
+          amount: 1500,
+          date: today,
+        });
+
+      expect(res.statusCode).toBe(400);
+    });
+
+    it("POST direct - should fail when neither quantity nor amount are provided", async () => {
+      const res = await request(app)
+        .post(`/v1/factories/${factoryId}/transactions/direct`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({
+          worker_id: producerMolderId,
+          date: today,
+        });
+
+      expect(res.statusCode).toBe(400);
+    });
+
     it("POST truck-distribution - should create truck distribution", async () => {
       const res = await request(app)
         .post(`/v1/factories/${factoryId}/transactions/truck-distribution`)
@@ -331,7 +376,7 @@ describe("Brick Factory Wage System Integration Tests", () => {
       expect(res.body.transaction.type).toBe("money_given");
       expect(Number(res.body.transaction.amount)).toBe(2000);
       expect(Number(res.body.updates.total_money_given)).toBe(2000);
-      expect(Number(res.body.updates.balance_due)).toBe(1850);
+      expect(Number(res.body.updates.balance_due)).toBe(3350);
     });
 
     it("POST handoff - should fail with non-existent kiln worker", async () => {
@@ -357,7 +402,7 @@ describe("Brick Factory Wage System Integration Tests", () => {
 
       expect(res.statusCode).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
-      expect(res.body.length).toBe(4);
+      expect(res.body.length).toBe(5);
     });
 
     it("GET /v1/factories/:factoryId/transactions - should filter by type", async () => {
@@ -392,8 +437,8 @@ describe("Brick Factory Wage System Integration Tests", () => {
 
       expect(res.statusCode).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
-      // producer should have handoff + direct + money_given = 3 transactions
-      expect(res.body.length).toBe(3);
+      // producer should have handoff + direct (quantity) + direct (amount) + money_given = 4 transactions
+      expect(res.body.length).toBe(4);
     });
 
     it("GET /v1/factories/:factoryId/transactions - should filter by date range", async () => {
@@ -419,7 +464,7 @@ describe("Brick Factory Wage System Integration Tests", () => {
       expect(Number(res.body.wages.total_bricks)).toBe(7000);
       expect(res.body.money.transactions.length).toBe(1);
       expect(Number(res.body.money.total_given)).toBe(2000);
-      expect(Number(res.body.balance_due)).toBe(1850);
+      expect(Number(res.body.balance_due)).toBe(3350);
     });
 
     it("GET /v1/factories/:factoryId/summary - should return factory summary", async () => {
