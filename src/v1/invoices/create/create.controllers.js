@@ -32,7 +32,12 @@ export async function createInvoice(req, res) {
     invoice_number = `PUR-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
   }
 
-  const validInvoiceTypes = ["sale", "purchase", "sale_return", "purchase_return"];
+  const validInvoiceTypes = [
+    "sale",
+    "purchase",
+    "sale_return",
+    "purchase_return",
+  ];
   if (!validInvoiceTypes.includes(invoice_type)) {
     throw new ApiError(400, "Invalid invoice_type");
   }
@@ -48,17 +53,20 @@ export async function createInvoice(req, res) {
 
     const dupCheck = await client.query(
       "SELECT id FROM invoices WHERE business_id = $1 AND invoice_type = $2 AND invoice_number = $3",
-      [businessId, invoice_type, invoice_number]
+      [businessId, invoice_type, invoice_number],
     );
     if (dupCheck.rowCount > 0) {
-      throw new ApiError(400, `Invoice number '${invoice_number}' already exists for this transaction type`);
+      throw new ApiError(
+        400,
+        `Invoice number '${invoice_number}' already exists for this transaction type`,
+      );
     }
 
     let party = null;
     if (party_id) {
       const partyRes = await client.query(
         "SELECT * FROM parties WHERE id = $1 AND business_id = $2 FOR UPDATE",
-        [party_id, businessId]
+        [party_id, businessId],
       );
       if (partyRes.rowCount === 0) {
         throw new ApiError(404, "Selected party not found for this business");
@@ -73,14 +81,17 @@ export async function createInvoice(req, res) {
 
     for (const item of items) {
       if (!item.name || !item.quantity || !item.unit_price) {
-        throw new ApiError(400, "Each item must have a name, quantity, and unit_price");
+        throw new ApiError(
+          400,
+          "Each item must have a name, quantity, and unit_price",
+        );
       }
 
       let dbItem = null;
       if (item.item_id) {
         const itemRes = await client.query(
           "SELECT * FROM items WHERE id = $1 AND business_id = $2 FOR UPDATE",
-          [item.item_id, businessId]
+          [item.item_id, businessId],
         );
         if (itemRes.rowCount === 0) {
           throw new ApiError(404, `Item with ID ${item.item_id} not found`);
@@ -113,6 +124,7 @@ export async function createInvoice(req, res) {
         tax_rate: taxRate,
         tax_amount: itemTax,
         total_amount: itemTotal,
+        hsn_code: item.hsn_code || (dbItem ? dbItem.hsn_code : null),
         dbItem,
       });
     }
@@ -121,11 +133,16 @@ export async function createInvoice(req, res) {
     calcDiscountAmount += overallDiscount;
     calcSubtotal -= overallDiscount;
 
-    const calcTotalAmount = round2(calcSubtotal + calcTaxAmount + Number(transport_cost || 0));
+    const calcTotalAmount = round2(
+      calcSubtotal + calcTaxAmount + Number(transport_cost || 0),
+    );
     const paidAmt = Number(paid_amount);
 
     if (paidAmt > calcTotalAmount) {
-      throw new ApiError(400, `Paid amount (${paidAmt}) cannot be greater than total invoice amount (${calcTotalAmount})`);
+      throw new ApiError(
+        400,
+        `Paid amount (${paidAmt}) cannot be greater than total invoice amount (${calcTotalAmount})`,
+      );
     }
 
     let payment_status = "unpaid";
@@ -171,8 +188,8 @@ export async function createInvoice(req, res) {
       await client.query(
         `INSERT INTO invoice_items (
           invoice_id, item_id, name, quantity, unit_price, 
-          discount_percentage, discount_amount, tax_rate, tax_amount, total_amount
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          discount_percentage, discount_amount, tax_rate, tax_amount, total_amount, hsn_code
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           savedInvoice.id,
           item.item_id,
@@ -184,9 +201,9 @@ export async function createInvoice(req, res) {
           item.tax_rate,
           item.tax_amount,
           item.total_amount,
-        ]
+          item.hsn_code || null,
+        ],
       );
-
     }
 
     if (party) {
@@ -203,11 +220,13 @@ export async function createInvoice(req, res) {
         balanceChange = unpaidAmount;
       }
 
-      const newPartyBalance = round2(Number(party.current_balance) + balanceChange);
+      const newPartyBalance = round2(
+        Number(party.current_balance) + balanceChange,
+      );
 
       await client.query(
         "UPDATE parties SET current_balance = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-        [newPartyBalance, party_id]
+        [newPartyBalance, party_id],
       );
     }
 
