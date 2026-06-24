@@ -5,6 +5,8 @@ const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
 export async function getDashboardSummary(req, res) {
   const { businessId } = req.params;
 
+  const lowStockRes = { rowCount: 0, rows: [] };
+
   const [
     salesRes,
     purchasesRes,
