@@ -29,6 +29,29 @@ app.use(
 // Development logging
 app.use(morgan("dev"));
 
+// Custom Response Time Middleware to inject response duration headers
+app.use((req, res, next) => {
+  const start = process.hrtime();
+  let headerSet = false;
+
+  const setResponseTimeHeader = () => {
+    if (headerSet) return;
+    const diff = process.hrtime(start);
+    const timeInMs = (diff[0] * 1e3 + diff[1] * 1e-6).toFixed(2);
+    res.setHeader("X-Response-Time", `${timeInMs}ms`);
+    headerSet = true;
+  };
+
+  // Intercept writeHead to set header before response is sent
+  const originalWriteHead = res.writeHead;
+  res.writeHead = function (...args) {
+    setResponseTimeHeader();
+    return originalWriteHead.apply(this, args);
+  };
+
+  next();
+});
+
 // Global Rate Limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
