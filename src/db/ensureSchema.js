@@ -109,6 +109,7 @@ export async function ensureSchema() {
       );
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_parties_business_id ON parties(business_id);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_parties_business_balance ON parties(business_id, current_balance);`);
     await pool.query(`
       ALTER TABLE parties ALTER COLUMN shipping_address TYPE JSONB USING to_jsonb(shipping_address);
     `).catch(() => {});
@@ -169,6 +170,7 @@ export async function ensureSchema() {
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_invoices_business_id ON invoices(business_id);`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_invoices_party_id ON invoices(party_id);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_invoices_business_type ON invoices(business_id, invoice_type);`);
     await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS chalan_no VARCHAR(100);`);
     await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS transport_cost NUMERIC(15, 2) DEFAULT 0.00;`);
     await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS delivery_date TIMESTAMP WITH TIME ZONE;`);
@@ -210,6 +212,7 @@ export async function ensureSchema() {
       );
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_payments_business_id ON payments(business_id);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_payments_business_type ON payments(business_id, payment_type);`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_payments_party_id ON payments(party_id);`);
     await pool.query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS invoice_id UUID REFERENCES invoices(id) ON DELETE RESTRICT;`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_payments_invoice_id ON payments(invoice_id);`);
@@ -232,6 +235,7 @@ export async function ensureSchema() {
       );
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_expenses_business_id ON expenses(business_id);`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_expenses_business_mode ON expenses(business_id, payment_mode);`);
     // Drop stock_transactions table as we no longer track stock transactions
     await pool.query(`DROP TABLE IF EXISTS stock_transactions CASCADE;`);
 
@@ -326,6 +330,10 @@ export async function ensureSchema() {
 
     console.log("Database schema checked and ensured successfully!");
   } catch (error) {
+    if (error.code === "42P07" || error.code === "23505") {
+      console.warn("Database schema warning (ignoring concurrent catalog conflict):", error.message);
+      return;
+    }
     console.error("Failed to ensure database schema:", error);
     throw error;
   }
