@@ -291,6 +291,23 @@ export async function ensureSchema() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_transaction_logs_type ON transaction_logs(type);`);
     await pool.query(`ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS is_in BOOLEAN DEFAULT TRUE;`);
 
+    // Ensure app_versions table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS app_versions (
+        id SERIAL PRIMARY KEY,
+        version VARCHAR(50) NOT NULL,
+        platform VARCHAR(50) DEFAULT 'all',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Seed initial version if empty
+    const versionCheck = await pool.query("SELECT COUNT(*) FROM app_versions");
+    if (parseInt(versionCheck.rows[0].count, 10) === 0) {
+      await pool.query("INSERT INTO app_versions (version, platform) VALUES ($1, $2)", ["1.0.0+3", "all"]);
+    }
+
     // Dynamically check and enable Row Level Security (RLS) on public tables where it's disabled.
     // Checking first prevents AccessExclusiveLock requests on already-secured tables, avoiding deadlocks in parallel test runs.
     const rlsDisabledTables = await pool.query(`
@@ -300,7 +317,7 @@ export async function ensureSchema() {
       WHERE n.nspname = 'public' 
         AND c.relkind = 'r' 
         AND c.relrowsecurity = false 
-        AND c.relname IN ('users', 'refresh_tokens', 'businesses', 'parties', 'items', 'invoices', 'invoice_items', 'payments', 'expenses', 'factories', 'workers', 'transaction_logs');
+        AND c.relname IN ('users', 'refresh_tokens', 'businesses', 'parties', 'items', 'invoices', 'invoice_items', 'payments', 'expenses', 'factories', 'workers', 'transaction_logs', 'app_versions');
     `);
 
     for (const row of rlsDisabledTables.rows) {

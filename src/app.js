@@ -10,6 +10,8 @@ import businessesRouter from "./v1/businesses/businesses.js";
 import factoriesRouter from "./v1/factories/factories.js";
 import logger from "./utils/logger.js";
 import { readFileSync } from "fs";
+import pool from "./db/db.js";
+import { asyncHandler } from "./utils/asyncHandler.js";
 
 const app = express();
 
@@ -43,6 +45,18 @@ app.use(express.json());
 app.get("/", (req, res) => {
   res.status(200).json({ message: "Request sent by Cron" });
 });
+
+// App version check route
+app.get("/v1/app-version", asyncHandler(async (req, res) => {
+  const result = await pool.query(
+    "SELECT version FROM app_versions ORDER BY created_at DESC LIMIT 1"
+  );
+  if (result.rows.length === 0) {
+    res.status(404).json({ message: "No version information found" });
+    return;
+  }
+  res.status(200).json({ version: result.rows[0].version });
+}));
 
 // API routes
 app.use("/v1/auth", authRoutes);
