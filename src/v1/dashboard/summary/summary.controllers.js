@@ -18,19 +18,25 @@ export async function getDashboardSummary(req, res) {
   ] = await Promise.all([
     pool.query(
       "SELECT SUM(total_amount) as total, SUM(tax_amount) as tax FROM invoices WHERE business_id = $1 AND invoice_type = 'sale'",
-      [businessId]
+      [businessId],
     ),
     pool.query(
       "SELECT SUM(total_amount) as total, SUM(tax_amount) as tax FROM invoices WHERE business_id = $1 AND invoice_type = 'purchase'",
-      [businessId]
+      [businessId],
     ),
     pool.query(
-      "SELECT SUM(current_balance) as total FROM parties WHERE business_id = $1 AND current_balance > 0",
-      [businessId]
+      `SELECT (
+        COALESCE((SELECT SUM(current_balance) FROM parties WHERE business_id = $1 AND current_balance > 0), 0) +
+        COALESCE((SELECT SUM(total_amount - paid_amount) FROM invoices WHERE business_id = $1 AND party_id IS NULL AND invoice_type IN ('sale', 'purchase_return') AND payment_status != 'paid'), 0)
+      ) as total`,
+      [businessId],
     ),
     pool.query(
-      "SELECT SUM(current_balance) as total FROM parties WHERE business_id = $1 AND current_balance < 0",
-      [businessId]
+      `SELECT (
+        COALESCE((SELECT SUM(current_balance) FROM parties WHERE business_id = $1 AND current_balance < 0), 0) -
+        COALESCE((SELECT SUM(total_amount - paid_amount) FROM invoices WHERE business_id = $1 AND party_id IS NULL AND invoice_type IN ('purchase', 'sale_return') AND payment_status != 'paid'), 0)
+      ) as total`,
+      [businessId],
     ),
     pool.query(
       `
@@ -53,7 +59,7 @@ export async function getDashboardSummary(req, res) {
       FROM invoices 
       WHERE business_id = $1
       `,
-      [businessId]
+      [businessId],
     ),
     pool.query(
       `
@@ -68,7 +74,7 @@ export async function getDashboardSummary(req, res) {
       FROM payments
       WHERE business_id = $1
       `,
-      [businessId]
+      [businessId],
     ),
     pool.query(
       `
@@ -79,7 +85,7 @@ export async function getDashboardSummary(req, res) {
       FROM expenses
       WHERE business_id = $1
       `,
-      [businessId]
+      [businessId],
     ),
   ]);
 
@@ -94,7 +100,7 @@ export async function getDashboardSummary(req, res) {
       (Number(invFlow.inv_pur_cash_out) +
         Number(invFlow.inv_sr_cash_out) +
         Number(payFlow.pay_out_cash) +
-        Number(expFlow.exp_cash))
+        Number(expFlow.exp_cash)),
   );
 
   const bankBalance = round2(
@@ -104,7 +110,7 @@ export async function getDashboardSummary(req, res) {
       (Number(invFlow.inv_pur_bank_out) +
         Number(invFlow.inv_sr_bank_out) +
         Number(payFlow.pay_out_bank) +
-        Number(expFlow.exp_bank))
+        Number(expFlow.exp_bank)),
   );
 
   const upiBalance = round2(
@@ -114,7 +120,7 @@ export async function getDashboardSummary(req, res) {
       (Number(invFlow.inv_pur_upi_out) +
         Number(invFlow.inv_sr_upi_out) +
         Number(payFlow.pay_out_upi) +
-        Number(expFlow.exp_upi))
+        Number(expFlow.exp_upi)),
   );
 
   const salesTotal = Number(salesRes.rows[0]?.total || 0);
@@ -131,7 +137,8 @@ export async function getDashboardSummary(req, res) {
   const receivablesBase = receivablesTotal - receivablesTax;
 
   const payablesTotal = Math.abs(Number(payablesRes.rows[0]?.total || 0));
-  const purchasesTaxRatio = purchasesTotal > 0 ? purchasesTax / purchasesTotal : 0;
+  const purchasesTaxRatio =
+    purchasesTotal > 0 ? purchasesTax / purchasesTotal : 0;
   const payablesTax = payablesTotal * purchasesTaxRatio;
   const payablesBase = payablesTotal - payablesTax;
 

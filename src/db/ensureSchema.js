@@ -108,11 +108,19 @@ export async function ensureSchema() {
         CONSTRAINT unique_party_name_per_business UNIQUE (business_id, name)
       );
     `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_parties_business_id ON parties(business_id);`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_parties_business_balance ON parties(business_id, current_balance);`);
-    await pool.query(`
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_parties_business_id ON parties(business_id);`,
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_parties_business_balance ON parties(business_id, current_balance);`,
+    );
+    await pool
+      .query(
+        `
       ALTER TABLE parties ALTER COLUMN shipping_address TYPE JSONB USING to_jsonb(shipping_address);
-    `).catch(() => {});
+    `,
+      )
+      .catch(() => {});
 
     // Ensure items table exists
     await pool.query(`
@@ -127,7 +135,9 @@ export async function ensureSchema() {
         CONSTRAINT unique_item_name_per_business UNIQUE (business_id, name)
       );
     `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_items_business_id ON items(business_id);`);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_items_business_id ON items(business_id);`,
+    );
 
     // Drop unused items columns and constraints cascade for existing installations
     await pool.query(`
@@ -168,12 +178,24 @@ export async function ensureSchema() {
         CONSTRAINT unique_invoice_number_per_business_and_type UNIQUE (business_id, invoice_type, invoice_number)
       );
     `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_invoices_business_id ON invoices(business_id);`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_invoices_party_id ON invoices(party_id);`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_invoices_business_type ON invoices(business_id, invoice_type);`);
-    await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS chalan_no VARCHAR(100);`);
-    await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS transport_cost NUMERIC(15, 2) DEFAULT 0.00;`);
-    await pool.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS delivery_date TIMESTAMP WITH TIME ZONE;`);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_invoices_business_id ON invoices(business_id);`,
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_invoices_party_id ON invoices(party_id);`,
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_invoices_business_type ON invoices(business_id, invoice_type);`,
+    );
+    await pool.query(
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS chalan_no VARCHAR(100);`,
+    );
+    await pool.query(
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS transport_cost NUMERIC(15, 2) DEFAULT 0.00;`,
+    );
+    await pool.query(
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS delivery_date TIMESTAMP WITH TIME ZONE;`,
+    );
 
     // Ensure invoice_items table exists
     await pool.query(`
@@ -189,10 +211,16 @@ export async function ensureSchema() {
         tax_rate NUMERIC(5, 2) DEFAULT 0.00,
         tax_amount NUMERIC(15, 2) DEFAULT 0.00,
         total_amount NUMERIC(15, 2) NOT NULL,
+        hsn_code VARCHAR(20),
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id);`);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_invoice_items_invoice_id ON invoice_items(invoice_id);`,
+    );
+    await pool.query(
+      `ALTER TABLE invoice_items ADD COLUMN IF NOT EXISTS hsn_code VARCHAR(20);`,
+    );
 
     // Ensure payments table exists
     await pool.query(`
@@ -211,11 +239,21 @@ export async function ensureSchema() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_payments_business_id ON payments(business_id);`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_payments_business_type ON payments(business_id, payment_type);`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_payments_party_id ON payments(party_id);`);
-    await pool.query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS invoice_id UUID REFERENCES invoices(id) ON DELETE RESTRICT;`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_payments_invoice_id ON payments(invoice_id);`);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_payments_business_id ON payments(business_id);`,
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_payments_business_type ON payments(business_id, payment_type);`,
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_payments_party_id ON payments(party_id);`,
+    );
+    await pool.query(
+      `ALTER TABLE payments ADD COLUMN IF NOT EXISTS invoice_id UUID REFERENCES invoices(id) ON DELETE RESTRICT;`,
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_payments_invoice_id ON payments(invoice_id);`,
+    );
 
     // Ensure expenses table exists
     await pool.query(`
@@ -234,8 +272,12 @@ export async function ensureSchema() {
         CONSTRAINT unique_expense_number_per_business UNIQUE (business_id, expense_number)
       );
     `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_expenses_business_id ON expenses(business_id);`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_expenses_business_mode ON expenses(business_id, payment_mode);`);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_expenses_business_id ON expenses(business_id);`,
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_expenses_business_mode ON expenses(business_id, payment_mode);`,
+    );
     // Drop stock_transactions table as we no longer track stock transactions
     await pool.query(`DROP TABLE IF EXISTS stock_transactions CASCADE;`);
 
@@ -250,7 +292,9 @@ export async function ensureSchema() {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_factories_user_id ON factories(user_id);`);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_factories_user_id ON factories(user_id);`,
+    );
 
     // Ensure workers table exists
     await pool.query(`
@@ -269,8 +313,12 @@ export async function ensureSchema() {
         CONSTRAINT unique_worker_name_per_factory UNIQUE (factory_id, name)
       );
     `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_workers_factory_id ON workers(factory_id);`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_workers_type ON workers(type);`);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_workers_factory_id ON workers(factory_id);`,
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_workers_type ON workers(type);`,
+    );
 
     // Ensure transaction_logs table exists
     await pool.query(`
@@ -290,10 +338,18 @@ export async function ensureSchema() {
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_transaction_logs_factory_id ON transaction_logs(factory_id);`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_transaction_logs_date ON transaction_logs(date);`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_transaction_logs_type ON transaction_logs(type);`);
-    await pool.query(`ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS is_in BOOLEAN DEFAULT TRUE;`);
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_transaction_logs_factory_id ON transaction_logs(factory_id);`,
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_transaction_logs_date ON transaction_logs(date);`,
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_transaction_logs_type ON transaction_logs(type);`,
+    );
+    await pool.query(
+      `ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS is_in BOOLEAN DEFAULT TRUE;`,
+    );
 
     // Ensure app_versions table exists
     await pool.query(`
@@ -309,7 +365,10 @@ export async function ensureSchema() {
     // Seed initial version if empty
     const versionCheck = await pool.query("SELECT COUNT(*) FROM app_versions");
     if (parseInt(versionCheck.rows[0].count, 10) === 0) {
-      await pool.query("INSERT INTO app_versions (version, platform) VALUES ($1, $2)", ["1.0.0+3", "all"]);
+      await pool.query(
+        "INSERT INTO app_versions (version, platform) VALUES ($1, $2)",
+        ["1.0.0+3", "all"],
+      );
     }
 
     // Dynamically check and enable Row Level Security (RLS) on public tables where it's disabled.
@@ -325,13 +384,18 @@ export async function ensureSchema() {
     `);
 
     for (const row of rlsDisabledTables.rows) {
-      await pool.query("ALTER TABLE " + row.relname + " ENABLE ROW LEVEL SECURITY;");
+      await pool.query(
+        "ALTER TABLE " + row.relname + " ENABLE ROW LEVEL SECURITY;",
+      );
     }
 
     console.log("Database schema checked and ensured successfully!");
   } catch (error) {
     if (error.code === "42P07" || error.code === "23505") {
-      console.warn("Database schema warning (ignoring concurrent catalog conflict):", error.message);
+      console.warn(
+        "Database schema warning (ignoring concurrent catalog conflict):",
+        error.message,
+      );
       return;
     }
     console.error("Failed to ensure database schema:", error);
