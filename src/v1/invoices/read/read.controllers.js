@@ -3,12 +3,20 @@ import { ApiError } from "../../../utils/ApiError.js";
 
 export async function listInvoices(req, res) {
   const { businessId } = req.params;
-  const { invoice_type, party_id, from_date, to_date, search } = req.query;
+  const {
+    invoice_type,
+    party_id,
+    transporter_party_id,
+    from_date,
+    to_date,
+    search,
+  } = req.query;
 
   let query = `
-    SELECT i.*, p.name as party_name 
+    SELECT i.*, p.name as party_name, tp.name as transporter_name
     FROM invoices i
     LEFT JOIN parties p ON i.party_id = p.id
+    LEFT JOIN parties tp ON i.transporter_party_id = tp.id
     WHERE i.business_id = $1
   `;
   const values = [businessId];
@@ -23,6 +31,12 @@ export async function listInvoices(req, res) {
   if (party_id) {
     query += ` AND i.party_id = $${paramIndex}`;
     values.push(party_id);
+    paramIndex++;
+  }
+
+  if (transporter_party_id) {
+    query += ` AND i.transporter_party_id = $${paramIndex}`;
+    values.push(transporter_party_id);
     paramIndex++;
   }
 
@@ -54,9 +68,10 @@ export async function getInvoiceById(req, res) {
   const { businessId, invoiceId } = req.params;
 
   const invoiceRes = await pool.query(
-    `SELECT i.*, p.name as party_name 
+    `SELECT i.*, p.name as party_name, tp.name as transporter_name
      FROM invoices i
      LEFT JOIN parties p ON i.party_id = p.id
+     LEFT JOIN parties tp ON i.transporter_party_id = tp.id
      WHERE i.id = $1 AND i.business_id = $2`,
     [invoiceId, businessId]
   );

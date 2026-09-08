@@ -1,5 +1,10 @@
 import pool from "../../../db/db.js";
 import { ApiError } from "../../../utils/ApiError.js";
+import {
+  resolveLinkedLeg,
+  paymentStatusFor,
+  legPaidColumns,
+} from "../../invoices/shared/legs.js";
 
 const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
 
@@ -57,16 +62,15 @@ export async function updatePayment(req, res) {
       );
       if (oldInvoiceRes.rowCount > 0) {
         const oldInvoice = oldInvoiceRes.rows[0];
-        const revertedPaidAmount = Math.max(0, round2(Number(oldInvoice.paid_amount) - Number(oldPayment.amount)));
-        let revertedPaymentStatus = "unpaid";
-        if (revertedPaidAmount >= Number(oldInvoice.total_amount)) {
-          revertedPaymentStatus = "paid";
-        } else if (revertedPaidAmount > 0) {
-          revertedPaymentStatus = "partially_paid";
-        }
+        const oldLeg = resolveLinkedLeg(oldInvoice, oldPayment.party_id);
+        const revertedPaidAmount = Math.max(0, round2(oldLeg.legPaid - Number(oldPayment.amount)));
+        const revertedPaymentStatus = paymentStatusFor(
+          oldInvoice,
+          legPaidColumns(oldInvoice, oldLeg, revertedPaidAmount)
+        );
 
         await client.query(
-          "UPDATE invoices SET paid_amount = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
+          `UPDATE invoices SET ${oldLeg.column} = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
           [revertedPaidAmount, revertedPaymentStatus, oldPayment.invoice_id]
         );
       }
@@ -107,7 +111,12 @@ export async function updatePayment(req, res) {
       }
       const linkedInvoice = newInvoiceRes.rows[0];
 
-      if (linkedInvoice.party_id !== party_id) {
+      // The transporter is a payable party on this invoice too, so they are
+      // allowed to settle it - their money goes to the transport leg.
+      if (
+        linkedInvoice.party_id !== party_id &&
+        linkedInvoice.transporter_party_id !== party_id
+      ) {
         throw new ApiError(400, "Invoice does not belong to the selected party");
       }
 
@@ -121,23 +130,20 @@ export async function updatePayment(req, res) {
         throw new ApiError(400, "Linked payments are only supported for sale and purchase invoices");
       }
 
-      const currentPaid = Number(linkedInvoice.paid_amount);
-      const totalAmt = Number(linkedInvoice.total_amount);
-      const remainingUnpaid = round2(totalAmt - currentPaid);
+      const leg = resolveLinkedLeg(linkedInvoice, party_id);
+      const remainingUnpaid = round2(leg.legTotal - leg.legPaid);
       if (amt > remainingUnpaid) {
         throw new ApiError(400, `Payment amount (${amt}) exceeds the remaining unpaid invoice amount (${remainingUnpaid})`);
       }
 
-      const newPaidAmount = round2(currentPaid + amt);
-      let newPaymentStatus = "unpaid";
-      if (newPaidAmount >= totalAmt) {
-        newPaymentStatus = "paid";
-      } else if (newPaidAmount > 0) {
-        newPaymentStatus = "partially_paid";
-      }
+      const newPaidAmount = round2(leg.legPaid + amt);
+      const newPaymentStatus = paymentStatusFor(
+        linkedInvoice,
+        legPaidColumns(linkedInvoice, leg, newPaidAmount)
+      );
 
       await client.query(
-        "UPDATE invoices SET paid_amount = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
+        `UPDATE invoices SET ${leg.column} = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
         [newPaidAmount, newPaymentStatus, invoice_id]
       );
     }

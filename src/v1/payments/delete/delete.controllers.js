@@ -1,5 +1,10 @@
 import pool from "../../../db/db.js";
 import { ApiError } from "../../../utils/ApiError.js";
+import {
+  resolveLinkedLeg,
+  paymentStatusFor,
+  legPaidColumns,
+} from "../../invoices/shared/legs.js";
 
 const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
 
@@ -30,16 +35,16 @@ export async function deletePayment(req, res) {
       );
       if (invoiceRes.rowCount > 0) {
         const invoice = invoiceRes.rows[0];
-        const revertedPaidAmount = Math.max(0, round2(Number(invoice.paid_amount) - Number(payment.amount)));
-        let revertedPaymentStatus = "unpaid";
-        if (revertedPaidAmount >= Number(invoice.total_amount)) {
-          revertedPaymentStatus = "paid";
-        } else if (revertedPaidAmount > 0) {
-          revertedPaymentStatus = "partially_paid";
-        }
+        // Give the money back to whichever leg this payment settled.
+        const leg = resolveLinkedLeg(invoice, payment.party_id);
+        const revertedPaidAmount = Math.max(0, round2(leg.legPaid - Number(payment.amount)));
+        const revertedPaymentStatus = paymentStatusFor(
+          invoice,
+          legPaidColumns(invoice, leg, revertedPaidAmount)
+        );
 
         await client.query(
-          "UPDATE invoices SET paid_amount = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3",
+          `UPDATE invoices SET ${leg.column} = $1, payment_status = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
           [revertedPaidAmount, revertedPaymentStatus, payment.invoice_id]
         );
       }

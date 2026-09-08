@@ -58,7 +58,7 @@ export const createPartySchema = z.object({
   gstin: z.string().optional().nullable(),
   billing_address: z.string().optional().nullable(),
   shipping_address: z.union([z.string(), z.array(z.string())]).optional().nullable(),
-  party_type: z.enum(["customer", "supplier", "both"]),
+  party_type: z.enum(["customer", "supplier", "both", "transporter"]),
   opening_balance: z.number().nonnegative().default(0),
   opening_balance_type: z.enum(["receive", "pay"]).default("receive"),
 });
@@ -81,6 +81,11 @@ const invoiceBaseObject = z.object({
   invoice_type: z.enum(["sale", "purchase", "sale_return", "purchase_return"]),
   chalan_no: z.string().optional().nullable(),
   transport_cost: z.number().nonnegative("Transport cost must be non-negative").optional(),
+  transporter_party_id: z.string().uuid("Invalid transporter ID").optional().nullable(),
+  vehicle_no: z.string().max(50).optional().nullable(),
+  transport_qty: z.number().nonnegative("Transport quantity must be non-negative").optional().nullable(),
+  transport_rate: z.number().nonnegative("Transport rate must be non-negative").optional().nullable(),
+  transport_paid_amount: z.number().nonnegative("Transport paid amount must be non-negative").optional(),
   invoice_date: z.string().optional(),
   due_date: z.string().optional().nullable(),
   delivery_date: z.string().optional().nullable(),
@@ -102,6 +107,31 @@ const invoiceBaseObject = z.object({
     .min(1, "At least one item is required"),
 });
 
+// The transport leg is purchase-only for now. The leg maths in
+// invoices/shared/legs.js is invoice-type agnostic, so widening this later
+// costs nothing, but it is a product decision rather than an accident.
+function refineTransporter(data, ctx) {
+  if (data.transporter_party_id === undefined || data.transporter_party_id === null) {
+    return;
+  }
+  if (data.invoice_type !== undefined && data.invoice_type !== "purchase") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "A transporter can only be set on a purchase",
+      path: ["transporter_party_id"],
+    });
+  }
+  // Linked payments infer their leg by comparing the payer against
+  // transporter_party_id, so the two parties must be distinct.
+  if (data.party_id && data.transporter_party_id === data.party_id) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "The transporter must be a different party from the supplier",
+      path: ["transporter_party_id"],
+    });
+  }
+}
+
 export const createInvoiceSchema = invoiceBaseObject.superRefine((data, ctx) => {
   if (data.invoice_type !== "purchase" && (!data.invoice_number || data.invoice_number.trim() === "")) {
     ctx.addIssue({
@@ -110,6 +140,7 @@ export const createInvoiceSchema = invoiceBaseObject.superRefine((data, ctx) => 
       path: ["invoice_number"],
     });
   }
+  refineTransporter(data, ctx);
 });
 
 export const updateInvoiceSchema = invoiceBaseObject.partial().superRefine((data, ctx) => {
@@ -122,6 +153,7 @@ export const updateInvoiceSchema = invoiceBaseObject.partial().superRefine((data
       });
     }
   }
+  refineTransporter(data, ctx);
 });
 
 // Payment Validation

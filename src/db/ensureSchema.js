@@ -99,7 +99,7 @@ export async function ensureSchema() {
         gstin VARCHAR(15),
         billing_address TEXT,
         shipping_address JSONB,
-        party_type VARCHAR(50) NOT NULL CHECK (party_type IN ('customer', 'supplier', 'both')),
+        party_type VARCHAR(50) NOT NULL CHECK (party_type IN ('customer', 'supplier', 'both', 'transporter')),
         opening_balance NUMERIC(15, 2) DEFAULT 0.00,
         opening_balance_type VARCHAR(20) DEFAULT 'receive' CHECK (opening_balance_type IN ('receive', 'pay')),
         current_balance NUMERIC(15, 2) DEFAULT 0.00,
@@ -121,6 +121,44 @@ export async function ensureSchema() {
     `,
       )
       .catch(() => {});
+
+    // Widen party_type to admit transporters on installs that predate them.
+    // An inline CHECK cannot be altered in place, so it has to be dropped and
+    // re-added; the constraint is looked up in the catalogue rather than by its
+    // generated name because a hand-restored database may have named it
+    // differently. The whole thing is skipped once 'transporter' is already
+    // allowed - it takes an ACCESS EXCLUSIVE lock on parties, and this runs on
+    // every boot (the same reason the RLS block below is conditional).
+    await pool
+      .query(
+        `
+      DO $$
+      DECLARE cname text; cdef text;
+      BEGIN
+        SELECT conname, pg_get_constraintdef(oid) INTO cname, cdef
+        FROM pg_constraint
+        WHERE conrelid = 'parties'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) ILIKE '%party_type%'
+        LIMIT 1;
+
+        IF cname IS NULL THEN
+          ALTER TABLE parties ADD CONSTRAINT parties_party_type_check
+            CHECK (party_type IN ('customer', 'supplier', 'both', 'transporter'));
+        ELSIF cdef NOT ILIKE '%transporter%' THEN
+          EXECUTE format('ALTER TABLE parties DROP CONSTRAINT %I', cname);
+          ALTER TABLE parties ADD CONSTRAINT parties_party_type_check
+            CHECK (party_type IN ('customer', 'supplier', 'both', 'transporter'));
+        END IF;
+      END $$;
+    `,
+      )
+      .catch((err) => {
+        // 42710 = duplicate_object, 42P07 = duplicate_relation
+        if (err.code !== "42710" && err.code !== "42P07") {
+          throw err;
+        }
+      });
 
     // Ensure items table exists
     await pool.query(`
@@ -162,6 +200,11 @@ export async function ensureSchema() {
         invoice_type VARCHAR(50) NOT NULL CHECK (invoice_type IN ('sale', 'purchase', 'sale_return', 'purchase_return')),
         chalan_no VARCHAR(100),
         transport_cost NUMERIC(15, 2) DEFAULT 0.00,
+        transporter_party_id UUID REFERENCES parties(id) ON DELETE RESTRICT,
+        vehicle_no VARCHAR(50),
+        transport_qty NUMERIC(15, 2),
+        transport_rate NUMERIC(15, 4),
+        transport_paid_amount NUMERIC(15, 2) DEFAULT 0.00,
         invoice_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         due_date TIMESTAMP WITH TIME ZONE,
         delivery_date TIMESTAMP WITH TIME ZONE,
@@ -195,6 +238,30 @@ export async function ensureSchema() {
     );
     await pool.query(
       `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS delivery_date TIMESTAMP WITH TIME ZONE;`,
+    );
+    // Transport is a second payable leg on a purchase: the freight is owed to
+    // transporter_party_id rather than to the supplier. RESTRICT rather than
+    // SET NULL on purpose - nulling the reference would silently hand the
+    // amount back to the "supplier owes it" rule without touching the
+    // supplier's current_balance, leaving money owed to nobody.
+    await pool.query(
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS transporter_party_id UUID REFERENCES parties(id) ON DELETE RESTRICT;`,
+    );
+    await pool.query(
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS vehicle_no VARCHAR(50);`,
+    );
+    await pool.query(
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS transport_qty NUMERIC(15, 2);`,
+    );
+    // 4dp: per-unit freight rates are routinely sub-rupee (0.55 a brick).
+    await pool.query(
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS transport_rate NUMERIC(15, 4);`,
+    );
+    await pool.query(
+      `ALTER TABLE invoices ADD COLUMN IF NOT EXISTS transport_paid_amount NUMERIC(15, 2) DEFAULT 0.00;`,
+    );
+    await pool.query(
+      `CREATE INDEX IF NOT EXISTS idx_invoices_transporter_party_id ON invoices(transporter_party_id);`,
     );
 
     // Ensure invoice_items table exists

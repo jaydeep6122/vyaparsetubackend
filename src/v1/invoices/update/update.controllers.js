@@ -1,5 +1,13 @@
 import pool from "../../../db/db.js";
 import { ApiError } from "../../../utils/ApiError.js";
+import {
+  computeLegs,
+  resolveTransportAmount,
+  goodsSign,
+  lockParties,
+  addDelta,
+  applyBalanceDeltas,
+} from "../shared/legs.js";
 
 const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
 
@@ -11,6 +19,11 @@ export async function updateInvoice(req, res) {
     invoice_type,
     chalan_no,
     transport_cost,
+    transporter_party_id,
+    vehicle_no,
+    transport_qty,
+    transport_rate,
+    transport_paid_amount,
     invoice_date,
     due_date,
     delivery_date,
@@ -88,33 +101,66 @@ export async function updateInvoice(req, res) {
     );
     const oldInvoiceItems = oldItemsRes.rows;
 
-    if (oldInvoice.party_id) {
-      const partyRes = await client.query(
-        "SELECT * FROM parties WHERE id = $1 FOR UPDATE",
-        [oldInvoice.party_id],
+    // The request body is validated as a partial, so anything absent keeps the
+    // value already on the row.
+    const nextTransporterPartyId =
+      transporter_party_id === undefined
+        ? oldInvoice.transporter_party_id
+        : transporter_party_id || null;
+    const nextVehicleNo =
+      vehicle_no === undefined ? oldInvoice.vehicle_no : vehicle_no || null;
+    const nextTransportQty =
+      transport_qty === undefined ? oldInvoice.transport_qty : transport_qty;
+    const nextTransportRate =
+      transport_rate === undefined ? oldInvoice.transport_rate : transport_rate;
+
+    if (nextTransporterPartyId && invoice_type !== "purchase") {
+      throw new ApiError(
+        400,
+        "A transporter can only be set on a purchase. Remove the transporter before changing the transaction type.",
       );
-      if (partyRes.rowCount > 0) {
-        const party = partyRes.rows[0];
-        const oldUnpaidAmount =
-          Number(oldInvoice.total_amount) - Number(oldInvoice.paid_amount);
-        let balanceRevert = 0;
-        if (oldInvoice.invoice_type === "sale") {
-          balanceRevert = -oldUnpaidAmount;
-        } else if (oldInvoice.invoice_type === "sale_return") {
-          balanceRevert = oldUnpaidAmount;
-        } else if (oldInvoice.invoice_type === "purchase") {
-          balanceRevert = oldUnpaidAmount;
-        } else if (oldInvoice.invoice_type === "purchase_return") {
-          balanceRevert = -oldUnpaidAmount;
-        }
-        const revertedPartyBalance = round2(
-          Number(party.current_balance) + balanceRevert,
-        );
-        await client.query(
-          "UPDATE parties SET current_balance = $1 WHERE id = $2",
-          [revertedPartyBalance, oldInvoice.party_id],
-        );
-      }
+    }
+    if (nextTransporterPartyId && nextTransporterPartyId === party_id) {
+      throw new ApiError(
+        400,
+        "The transporter must be a different party from the supplier",
+      );
+    }
+
+    // Every party this edit can touch is locked here, in id order, before the
+    // item loop - so the invoice -> parties -> items order matches create's and
+    // a supplier/transporter pair cannot deadlock against a concurrent write.
+    const partyRows = await lockParties(client, businessId, [
+      oldInvoice.party_id,
+      oldInvoice.transporter_party_id,
+      party_id,
+      nextTransporterPartyId,
+    ]);
+
+    // Reverts are computed from the old row's own columns, which is what lets
+    // rows written before transporters existed revert under the old rule.
+    const deltas = {};
+    const oldLegs = computeLegs({
+      total_amount: oldInvoice.total_amount,
+      transport_cost: oldInvoice.transport_cost,
+      transporter_party_id: oldInvoice.transporter_party_id,
+    });
+    if (oldInvoice.party_id) {
+      addDelta(
+        deltas,
+        oldInvoice.party_id,
+        -goodsSign(oldInvoice.invoice_type) *
+          round2(oldLegs.goodsLeg - Number(oldInvoice.paid_amount || 0)),
+      );
+    }
+    if (oldLegs.hasTransportLeg) {
+      addDelta(
+        deltas,
+        oldInvoice.transporter_party_id,
+        round2(
+          oldLegs.transportLeg - Number(oldInvoice.transport_paid_amount || 0),
+        ),
+      );
     }
 
     await client.query("DELETE FROM invoice_items WHERE invoice_id = $1", [
@@ -180,24 +226,54 @@ export async function updateInvoice(req, res) {
     calcDiscountAmount += overallDiscount;
     calcSubtotal -= overallDiscount;
 
+    // Quantity x rate wins whenever either was sent; otherwise transport_cost
+    // (sent, or carried over) stands on its own.
     const transportAmt =
-      transport_cost === undefined
-        ? Number(oldInvoice.transport_cost || 0)
-        : Number(transport_cost || 0);
-    const calcTotalAmount = round2(calcSubtotal + calcTaxAmount + transportAmt);
-    const paidAmt = Number(paid_amount);
+      transport_qty !== undefined || transport_rate !== undefined
+        ? resolveTransportAmount({
+            transport_qty: nextTransportQty,
+            transport_rate: nextTransportRate,
+            transport_cost,
+          })
+        : transport_cost === undefined
+          ? round2(Number(oldInvoice.transport_cost || 0))
+          : round2(Number(transport_cost || 0));
 
-    if (paidAmt > calcTotalAmount) {
+    const calcTotalAmount = round2(calcSubtotal + calcTaxAmount + transportAmt);
+
+    const { hasTransportLeg, transportLeg, goodsLeg } = computeLegs({
+      total_amount: calcTotalAmount,
+      transport_cost: transportAmt,
+      transporter_party_id: nextTransporterPartyId,
+    });
+
+    const paidAmt = Number(paid_amount);
+    const transportPaidAmt = hasTransportLeg
+      ? Number(
+          (transport_paid_amount === undefined
+            ? oldInvoice.transport_paid_amount
+            : transport_paid_amount) || 0,
+        )
+      : 0;
+
+    if (paidAmt > goodsLeg) {
       throw new ApiError(
         400,
-        `Paid amount (${paidAmt}) cannot be greater than total invoice amount (${calcTotalAmount})`,
+        `Paid amount (${paidAmt}) cannot be greater than total invoice amount (${goodsLeg})`,
+      );
+    }
+    if (transportPaidAmt > transportLeg) {
+      throw new ApiError(
+        400,
+        `Transport paid amount (${transportPaidAmt}) cannot be greater than the transport amount (${transportLeg})`,
       );
     }
 
+    const totalPaid = round2(paidAmt + transportPaidAmt);
     let payment_status = "unpaid";
-    if (paidAmt >= calcTotalAmount) {
+    if (totalPaid >= calcTotalAmount) {
       payment_status = "paid";
-    } else if (paidAmt > 0) {
+    } else if (totalPaid > 0) {
       payment_status = "partially_paid";
     }
 
@@ -220,8 +296,13 @@ export async function updateInvoice(req, res) {
         payment_status = $14,
         payment_mode = $15,
         notes = $16,
+        transporter_party_id = $17,
+        vehicle_no = $18,
+        transport_qty = $19,
+        transport_rate = $20,
+        transport_paid_amount = $21,
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $17
+      WHERE id = $22
       RETURNING *
     `;
 
@@ -230,9 +311,7 @@ export async function updateInvoice(req, res) {
       invoice_number,
       invoice_type,
       chalan_no === undefined ? oldInvoice.chalan_no : chalan_no || null,
-      transport_cost === undefined
-        ? oldInvoice.transport_cost
-        : Number(transport_cost || 0),
+      transportAmt,
       invoice_date ? new Date(invoice_date) : oldInvoice.invoice_date,
       due_date ? new Date(due_date) : null,
       delivery_date === undefined
@@ -248,6 +327,15 @@ export async function updateInvoice(req, res) {
       payment_status,
       payment_mode,
       notes || null,
+      nextTransporterPartyId,
+      nextVehicleNo,
+      nextTransportQty === undefined || nextTransportQty === null
+        ? null
+        : Number(nextTransportQty),
+      nextTransportRate === undefined || nextTransportRate === null
+        ? null
+        : Number(nextTransportRate),
+      transportPaidAmt,
       invoiceId,
     ];
 
@@ -277,35 +365,23 @@ export async function updateInvoice(req, res) {
     }
 
     if (party_id) {
-      const newPartyRes = await client.query(
-        "SELECT * FROM parties WHERE id = $1 FOR UPDATE",
-        [party_id],
+      addDelta(
+        deltas,
+        party_id,
+        goodsSign(invoice_type) * round2(goodsLeg - paidAmt),
       );
-      if (newPartyRes.rowCount > 0) {
-        const party = newPartyRes.rows[0];
-        const unpaidAmount = calcTotalAmount - paidAmt;
-        let balanceChange = 0;
-
-        if (invoice_type === "sale") {
-          balanceChange = unpaidAmount;
-        } else if (invoice_type === "sale_return") {
-          balanceChange = -unpaidAmount;
-        } else if (invoice_type === "purchase") {
-          balanceChange = -unpaidAmount;
-        } else if (invoice_type === "purchase_return") {
-          balanceChange = unpaidAmount;
-        }
-
-        const newPartyBalance = round2(
-          Number(party.current_balance) + balanceChange,
-        );
-
-        await client.query(
-          "UPDATE parties SET current_balance = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-          [newPartyBalance, party_id],
-        );
-      }
     }
+    if (hasTransportLeg) {
+      addDelta(
+        deltas,
+        nextTransporterPartyId,
+        -round2(transportLeg - transportPaidAmt),
+      );
+    }
+
+    // Applied once per party, so a party that is both the old and the new one
+    // gets a single net write rather than two read-modify-writes.
+    await applyBalanceDeltas(client, partyRows, deltas);
 
     await client.query("COMMIT");
     res.status(200).json(updatedInvoice);

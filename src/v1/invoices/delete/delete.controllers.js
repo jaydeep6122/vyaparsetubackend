@@ -1,5 +1,12 @@
 import pool from "../../../db/db.js";
 import { ApiError } from "../../../utils/ApiError.js";
+import {
+  computeLegs,
+  goodsSign,
+  lockParties,
+  addDelta,
+  applyBalanceDeltas,
+} from "../shared/legs.js";
 
 const round2 = (num) => Math.round((Number(num) + Number.EPSILON) * 100) / 100;
 
@@ -23,35 +30,36 @@ export async function deleteInvoice(req, res) {
     const invoice = invoiceRes.rows[0];
 
 
+    // Both legs are reverted, each from the row's own columns, so an invoice
+    // written before transporters existed reverts under the old rule.
+    const partyRows = await lockParties(client, businessId, [
+      invoice.party_id,
+      invoice.transporter_party_id,
+    ]);
+
+    const legs = computeLegs({
+      total_amount: invoice.total_amount,
+      transport_cost: invoice.transport_cost,
+      transporter_party_id: invoice.transporter_party_id,
+    });
+
+    const deltas = {};
     if (invoice.party_id) {
-      const partyRes = await client.query(
-        "SELECT * FROM parties WHERE id = $1 FOR UPDATE",
-        [invoice.party_id]
+      addDelta(
+        deltas,
+        invoice.party_id,
+        -goodsSign(invoice.invoice_type) *
+          round2(legs.goodsLeg - Number(invoice.paid_amount || 0)),
       );
-
-      if (partyRes.rowCount > 0) {
-        const party = partyRes.rows[0];
-        const unpaidAmount = Number(invoice.total_amount) - Number(invoice.paid_amount);
-        let balanceRevert = 0;
-
-        if (invoice.invoice_type === "sale") {
-          balanceRevert = -unpaidAmount;
-        } else if (invoice.invoice_type === "sale_return") {
-          balanceRevert = unpaidAmount;
-        } else if (invoice.invoice_type === "purchase") {
-          balanceRevert = unpaidAmount;
-        } else if (invoice.invoice_type === "purchase_return") {
-          balanceRevert = -unpaidAmount;
-        }
-
-        const newPartyBalance = round2(Number(party.current_balance) + balanceRevert);
-
-        await client.query(
-          "UPDATE parties SET current_balance = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-          [newPartyBalance, invoice.party_id]
-        );
-      }
     }
+    if (legs.hasTransportLeg) {
+      addDelta(
+        deltas,
+        invoice.transporter_party_id,
+        round2(legs.transportLeg - Number(invoice.transport_paid_amount || 0)),
+      );
+    }
+    await applyBalanceDeltas(client, partyRows, deltas);
 
     await client.query(
       "DELETE FROM invoices WHERE id = $1",
