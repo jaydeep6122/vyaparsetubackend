@@ -418,6 +418,7 @@ export async function ensureSchema() {
       `ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS is_in BOOLEAN DEFAULT TRUE;`,
     );
 
+<<<<<<< HEAD
     // Ensure app_versions table exists
     await pool.query(`
       CREATE TABLE IF NOT EXISTS app_versions (
@@ -438,6 +439,8 @@ export async function ensureSchema() {
       );
     }
 
+=======
+>>>>>>> parent of e00ac0b (Merge pull request #18 from jaydeep6122/appVersion)
     // Dynamically check and enable Row Level Security (RLS) on public tables where it's disabled.
     // Checking first prevents AccessExclusiveLock requests on already-secured tables, avoiding deadlocks in parallel test runs.
     const rlsDisabledTables = await pool.query(`
@@ -447,7 +450,7 @@ export async function ensureSchema() {
       WHERE n.nspname = 'public' 
         AND c.relkind = 'r' 
         AND c.relrowsecurity = false 
-        AND c.relname IN ('users', 'refresh_tokens', 'businesses', 'parties', 'items', 'invoices', 'invoice_items', 'payments', 'expenses', 'factories', 'workers', 'transaction_logs', 'app_versions');
+        AND c.relname IN ('users', 'refresh_tokens', 'businesses', 'parties', 'items', 'invoices', 'invoice_items', 'payments', 'expenses', 'factories', 'workers', 'transaction_logs');
     `);
 
     for (const row of rlsDisabledTables.rows) {
