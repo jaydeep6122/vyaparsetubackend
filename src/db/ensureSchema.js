@@ -418,29 +418,7 @@ export async function ensureSchema() {
       `ALTER TABLE transaction_logs ADD COLUMN IF NOT EXISTS is_in BOOLEAN DEFAULT TRUE;`,
     );
 
-<<<<<<< HEAD
-    // Ensure app_versions table exists
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS app_versions (
-        id SERIAL PRIMARY KEY,
-        version VARCHAR(50) NOT NULL,
-        platform VARCHAR(50) DEFAULT 'all',
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
 
-    // Seed initial version if empty
-    const versionCheck = await pool.query("SELECT COUNT(*) FROM app_versions");
-    if (parseInt(versionCheck.rows[0].count, 10) === 0) {
-      await pool.query(
-        "INSERT INTO app_versions (version, platform) VALUES ($1, $2)",
-        ["1.0.0+3", "all"],
-      );
-    }
-
-=======
->>>>>>> parent of e00ac0b (Merge pull request #18 from jaydeep6122/appVersion)
     // Dynamically check and enable Row Level Security (RLS) on public tables where it's disabled.
     // Checking first prevents AccessExclusiveLock requests on already-secured tables, avoiding deadlocks in parallel test runs.
     const rlsDisabledTables = await pool.query(`
