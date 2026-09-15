@@ -90,6 +90,18 @@ describe("businesses", () => {
     expect((await staffBiz.get("")).status).toBe(404);
   });
 
+  it("accepts the logo and signature as image data URIs or URLs", async () => {
+    const owner = await signup();
+    const pixel = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
+    const business = await createBusiness(owner.auth, { logo_url: pixel, signature_url: "https://example.com/sign.png" });
+    expect(business.logo_url).toBe(pixel);
+
+    const biz = bizClient(owner.auth, business.id);
+    expect((await biz.patch("", { logo_url: "data:text/html;base64,PHNjcmlwdD4=" })).status).toBe(400);
+    expect((await biz.patch("", { signature_url: "not an image" })).status).toBe(400);
+    expect(data(await biz.patch("", { logo_url: null }, 200)).logo_url).toBeNull();
+  });
+
   it("archives a business, owner only", async () => {
     const owner = await signup();
     const business = await createBusiness(owner.auth);

@@ -91,7 +91,8 @@ app.use(
   authLimiter,
 );
 
-app.use(express.json({ limit: "1mb" }));
+// Room for a business logo and signature sent inline as data URIs.
+app.use(express.json({ limit: "2mb" }));
 
 // Pinged by the keep-alive cron (only match root path)
 app.get("/", (req, res) => {
