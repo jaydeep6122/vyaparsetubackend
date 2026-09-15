@@ -1,5 +1,12 @@
 import winston from "winston";
 import path from "path";
+import fs from "fs";
+
+// The file transports below need the directory to exist before they open.
+const logsDir = path.join(process.cwd(), "logs");
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir);
+}
 
 const { combine, timestamp, json, errors, printf, colorize } = winston.format;
 
@@ -49,12 +56,5 @@ const logger = winston.createLogger({
     new winston.transports.File({ filename: path.join(process.cwd(), "logs", "rejections.log") }),
   ],
 });
-
-// Create logs directory if it doesn't exist
-import fs from "fs";
-const logsDir = path.join(process.cwd(), "logs");
-if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir);
-}
 
 export default logger;

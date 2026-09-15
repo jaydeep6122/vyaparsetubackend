@@ -28,3 +28,9 @@ Thumbs.db
 *.log
 
 coverage/
+logs/
+
+# Database dumps and backups
+*.sql
+*.dump
+*.backup

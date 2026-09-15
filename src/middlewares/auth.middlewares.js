@@ -1,61 +1,72 @@
-import jwt from "jsonwebtoken";
 import pool from "../db/db.js";
 import { ApiError } from "../utils/ApiError.js";
-import { asyncHandler } from "../utils/asyncHandler.js";
+import { verifyAccessToken } from "../services/tokens.js";
 
-export const requireAuth = asyncHandler(async (req, res, next) => {
-  const authHeader = req.headers.authorization || req.headers.Authorization;
+export const ROLE_RANK = { staff: 1, accountant: 2, admin: 3, owner: 4 };
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export async function requireAuth(req, res, next) {
+  const [scheme, token] = (req.headers.authorization || "").split(" ");
+  if (scheme !== "Bearer" || !token) {
     throw new ApiError(401, "Authorization token is required");
   }
 
-  const token = authHeader.split(" ")[1];
-
+  let payload;
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    const query = "SELECT id, name, email, is_active FROM users WHERE id = $1";
-    const result = await pool.query(query, [decoded.id]);
-    const user = result.rows[0];
-
-    if (!user) {
-      throw new ApiError(401, "User not found");
-    }
-
-    if (!user.is_active) {
-      throw new ApiError(403, "User account is suspended");
-    }
-
-    req.user = user;
-    next();
+    payload = verifyAccessToken(token);
   } catch (error) {
-    if (error.name === "TokenExpiredError") {
-      throw new ApiError(401, "Access token expired");
-    }
-    throw new ApiError(401, "Invalid access token");
-  }
-});
-
-export const requireBusinessOwner = asyncHandler(async (req, res, next) => {
-  const businessId = req.params.businessId || req.body.businessId || req.query.businessId;
-  const userId = req.user?.id;
-
-  if (!businessId) {
-    throw new ApiError(400, "Business ID is required");
+    throw new ApiError(
+      401,
+      error.name === "TokenExpiredError" ? "Access token expired" : "Invalid access token",
+    );
   }
 
-  if (!userId) {
-    throw new ApiError(401, "Authentication is required");
-  }
+  const {
+    rows: [user],
+  } = await pool.query(
+    "SELECT id, name, email, phone, is_active FROM users WHERE id = $1",
+    [payload.sub],
+  );
+  if (!user) throw new ApiError(401, "Invalid access token");
+  if (!user.is_active) throw new ApiError(403, "User account is suspended");
 
-  const query = "SELECT id FROM businesses WHERE id = $1 AND user_id = $2";
-  const result = await pool.query(query, [businessId, userId]);
-
-  if (result.rowCount === 0) {
-    throw new ApiError(403, "You do not have permission to access this business");
-  }
-
+  req.user = user;
   next();
-});
+}
 
+/**
+ * Loads `:businessId` for an active member. Non-members get 404, not 403, so
+ * business ids cannot be probed.
+ */
+export async function loadBusiness(req, res, next) {
+  const { businessId } = req.params;
+  if (!UUID_RE.test(businessId)) throw new ApiError(404, "Business not found");
+
+  const {
+    rows: [row],
+  } = await pool.query(
+    `SELECT b.*, m.role
+     FROM businesses b
+     JOIN business_members m
+       ON m.business_id = b.id AND m.user_id = $2 AND m.status = 'active'
+     WHERE b.id = $1 AND b.archived_at IS NULL`,
+    [businessId.toLowerCase(), req.user.id],
+  );
+  if (!row) throw new ApiError(404, "Business not found");
+
+  const { role, ...business } = row;
+  req.business = business;
+  req.role = role;
+  next();
+}
+
+/** owner > admin > accountant > staff */
+export const hasRole = (role, minimum) => ROLE_RANK[role] >= ROLE_RANK[minimum];
+
+export const requireRole = (minimum) => (req, res, next) => {
+  if (!hasRole(req.role, minimum)) {
+    throw new ApiError(403, `This action needs the ${minimum} role or higher`);
+  }
+  next();
+};
