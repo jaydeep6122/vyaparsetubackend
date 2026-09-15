@@ -5,10 +5,16 @@ export const TOKEN_ISSUER = "vyaparsetu";
 const ACCESS_TOKEN_SECONDS = 15 * 60;
 const REFRESH_TOKEN_DAYS = 30;
 
+// Each kind of signed token has its own audience, so a share link can never
+// be used as an access token or the other way round.
+const ACCESS_AUDIENCE = "access";
+const SHARE_AUDIENCE = "invoice-share";
+
 export const signAccessToken = (userId) =>
   jwt.sign({}, process.env.JWT_SECRET, {
     subject: userId,
     issuer: TOKEN_ISSUER,
+    audience: ACCESS_AUDIENCE,
     expiresIn: ACCESS_TOKEN_SECONDS,
     algorithm: "HS256",
   });
@@ -17,7 +23,29 @@ export const verifyAccessToken = (token) =>
   jwt.verify(token, process.env.JWT_SECRET, {
     algorithms: ["HS256"],
     issuer: TOKEN_ISSUER,
+    audience: ACCESS_AUDIENCE,
   });
+
+export const signShareToken = (payload, expiresInSeconds) =>
+  jwt.sign(payload, process.env.JWT_SECRET, {
+    issuer: TOKEN_ISSUER,
+    audience: SHARE_AUDIENCE,
+    expiresIn: expiresInSeconds,
+    algorithm: "HS256",
+  });
+
+/** The token's payload, or null when it is forged, expired or not a share token. */
+export function verifyShareToken(token) {
+  try {
+    return jwt.verify(token, process.env.JWT_SECRET, {
+      algorithms: ["HS256"],
+      issuer: TOKEN_ISSUER,
+      audience: SHARE_AUDIENCE,
+    });
+  } catch {
+    return null;
+  }
+}
 
 /** Refresh tokens are opaque random strings; only their SHA-256 is stored. */
 export const hashToken = (token) =>

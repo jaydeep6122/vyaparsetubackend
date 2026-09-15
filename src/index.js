@@ -5,6 +5,10 @@ import logger from "./utils/logger.js";
 
 const env = loadEnv();
 
+if (env.NODE_ENV === "production" && !process.env.SMTP_HOST) {
+  logger.warn("SMTP_HOST is not set: password reset codes and invoice emails cannot be sent");
+}
+
 // The schema is owned by migrations (`npm run migrate`), never changed at boot.
 async function start() {
   try {

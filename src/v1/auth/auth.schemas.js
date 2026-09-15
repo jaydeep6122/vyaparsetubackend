@@ -43,3 +43,12 @@ export const changePasswordSchema = z.object({
   new_password: password,
   device_info: deviceInfo,
 });
+
+export const forgotPasswordSchema = z.object({ email });
+
+export const resetPasswordSchema = z.object({
+  email,
+  code: z.string().trim().regex(/^\d{6}$/, "The code has 6 digits"),
+  new_password: password,
+  device_info: deviceInfo,
+});

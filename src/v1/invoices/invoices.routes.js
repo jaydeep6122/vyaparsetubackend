@@ -3,8 +3,9 @@ import pool from "../../db/db.js";
 import { requireRole } from "../../middlewares/auth.middlewares.js";
 import { idParams } from "../../middlewares/params.middlewares.js";
 import { validate } from "../../middlewares/validation.middlewares.js";
-import { context, created, ok, paged } from "../../utils/http.js";
+import { context, created, ok, paged, publicBaseUrl, sendPdf } from "../../utils/http.js";
 import { cancelSchema } from "../payments/payments.schemas.js";
+import * as documents from "./invoices.documents.js";
 import * as schemas from "./invoices.schemas.js";
 import * as service from "./invoices.service.js";
 
@@ -41,6 +42,19 @@ router.post(
     ok(res, await service.cancelInvoice(context(req), req.params.invoiceId, req.body.reason));
   },
 );
+
+router.get("/:invoiceId/pdf", idParams("invoiceId"), validate(schemas.pdfQuery, "query"), async (req, res) => {
+  const { fileName, pdf } = await documents.invoicePdf(req.business.id, req.params.invoiceId);
+  sendPdf(res, fileName, pdf, { download: req.query.download });
+});
+
+router.post("/:invoiceId/share", idParams("invoiceId"), async (req, res) => {
+  ok(res, await documents.shareInvoice(context(req), req.params.invoiceId, publicBaseUrl(req)));
+});
+
+router.post("/:invoiceId/email", idParams("invoiceId"), validate(schemas.emailInvoiceSchema), async (req, res) => {
+  ok(res, await documents.emailInvoice(context(req), req.params.invoiceId, req.body));
+});
 
 router.delete("/:invoiceId", idParams("invoiceId"), async (req, res) => {
   await service.deleteDraft(context(req), req.params.invoiceId);

@@ -52,7 +52,7 @@ Authenticated routes need `Authorization: Bearer <access_token>`. Business route
 
 | Area | Routes |
 |---|---|
-| Auth | `POST /v1/auth/signup`, `/login`, `/refresh`, `/logout` · `GET/PATCH /v1/auth/me` · `POST /v1/auth/me/password` |
+| Auth | `POST /v1/auth/signup`, `/login`, `/refresh`, `/logout` · `GET/PATCH /v1/auth/me` · `POST /v1/auth/me/password` · `POST /v1/auth/password/forgot`, `/password/reset` |
 | Businesses | `POST/GET /v1/businesses` · `GET/PATCH/DELETE /:businessId` (DELETE archives) |
 | Members | `GET /members` · `PATCH/DELETE /members/:userId` · `GET/POST /invites` · `DELETE /invites/:inviteId` · `POST /v1/invites/accept` |
 | Numbering | `GET /document-series` · `PATCH /document-series/:seriesId` |
@@ -60,7 +60,8 @@ Authenticated routes need `Authorization: Bearer <access_token>`. Business route
 | Items | `GET/POST /items` · `GET/PATCH /items/:id` · `POST /items/:id/archive`, `/restore` |
 | Masters | `/tax-rates`, `/item-categories`, `/expense-categories` |
 | Accounts | `GET/POST /accounts` · `GET/PATCH /accounts/:id` · archive/restore · `GET /accounts/:id/book` |
-| Invoices | `GET/POST /invoices` · `GET/PUT/DELETE /invoices/:id` (DELETE: drafts only) · `POST /invoices/:id/cancel` |
+| Invoices | `GET/POST /invoices` · `GET/PUT/DELETE /invoices/:id` (DELETE: drafts only) · `POST /invoices/:id/cancel` · `GET /invoices/:id/pdf` · `POST /invoices/:id/share`, `/email` |
+| Public | `GET /v1/public/invoices/:token` (share links, no login) |
 | Payments | `GET/POST /payments` · `GET/PUT /payments/:id` · `POST /payments/:id/cancel` |
 | Expenses | `GET/POST /expenses` · `GET/PUT /expenses/:id` · `POST /expenses/:id/cancel` |
 | Transfers | `GET/POST /transfers` · `POST /transfers/:id/cancel` |
@@ -81,3 +82,35 @@ Authenticated routes need `Authorization: Bearer <access_token>`. Business route
   - `paid_now` pays the payee straight away.
 - **`payment`** records money received or paid with the invoice. A walk-in sale (no party) must be paid in full.
 - **Editing and cancelling**: `PUT` sends the whole invoice again. A final invoice is cancelled, never deleted, and only after its payments are cancelled.
+
+### Invoice PDF, sharing and email
+
+- **`GET /invoices/:id/pdf`** returns an A4 PDF (add `?download=true` to download instead of viewing inline). The title follows the document type:
+  - Tax invoice or bill of supply for sales.
+  - Credit note for sale returns, debit note for purchase returns.
+- **The PDF includes**:
+  - business and party details
+  - transport details
+  - line items and charges
+  - GST breakup by rate
+  - amount in words
+  - payments received and balance due
+  - bank details, and a UPI QR code for the balance due
+  - terms, and a signature line
+- **Watermarks**: drafts and cancelled invoices are marked on every page.
+- **`POST /invoices/:id/share`** returns a signed link that opens the PDF without logging in, plus a `whatsapp_url` with the message ready to send. Links last 30 days and cannot be revoked one by one. Set `PUBLIC_BASE_URL` so links use your public address.
+- **`POST /invoices/:id/email`** emails the PDF to the party (or to `to`). This needs the SMTP settings.
+- **Limitation**: PDFs use a Latin-only font. Names written in Gujarati, Hindi or other Indian scripts do not print correctly yet.
+
+### Forgot password
+
+1. `POST /v1/auth/password/forgot { email }` always answers the same way. If the account exists, a 6-digit code is emailed.
+2. `POST /v1/auth/password/reset { email, code, new_password }` sets the new password, signs out every session, and returns a new session.
+
+**Code rules**: a code expires after 15 minutes, allows 5 wrong attempts, and works once. A new code can be requested at most once a minute.
+
+**Without SMTP** in development, the email (including the code) is printed to the server log.
+
+## Email (SMTP)
+
+Set `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` and `MAIL_FROM`. Any SMTP provider works (Gmail app password, Amazon SES, Brevo and others). Without them nothing is emailed; in production the server logs a warning at startup.

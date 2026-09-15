@@ -8,6 +8,7 @@ import { errorHandler, notFoundHandler } from "./middlewares/error.middlewares.j
 import authRouter from "./v1/auth/auth.routes.js";
 import businessesRouter from "./v1/businesses/businesses.routes.js";
 import invitesRouter from "./v1/invites/invites.routes.js";
+import publicRouter from "./v1/public/public.routes.js";
 import pool from "./db/db.js";
 
 const app = express();
@@ -62,6 +63,8 @@ app.use((req, res, next) => {
 });
 
 const isHealthCheck = (req) => req.path === "/" || req.path === "/health";
+// The test suite makes hundreds of requests from one address.
+const isTestRun = () => process.env.NODE_ENV === "test";
 
 // Global Rate Limiting (per client IP)
 const limiter = rateLimit({
@@ -70,7 +73,7 @@ const limiter = rateLimit({
   message: { success: false, statusCode: 429, message: "Too many requests, please try again later" },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: isHealthCheck,
+  skip: (req) => isTestRun() || isHealthCheck(req),
 });
 app.use(limiter);
 
@@ -81,8 +84,12 @@ const authLimiter = rateLimit({
   message: { success: false, statusCode: 429, message: "Too many attempts, please try again after 15 minutes" },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: isTestRun,
 });
-app.use(["/v1/auth/login", "/v1/auth/signup"], authLimiter);
+app.use(
+  ["/v1/auth/login", "/v1/auth/signup", "/v1/auth/password/forgot", "/v1/auth/password/reset"],
+  authLimiter,
+);
 
 app.use(express.json({ limit: "1mb" }));
 
@@ -105,6 +112,8 @@ app.get("/health", async (req, res) => {
 app.use("/v1/auth", authRouter);
 app.use("/v1/businesses", businessesRouter);
 app.use("/v1/invites", invitesRouter);
+// Unauthenticated: signed share links only.
+app.use("/v1/public", publicRouter);
 
 // 404 and error handling middleware MUST be registered last
 app.use(notFoundHandler);

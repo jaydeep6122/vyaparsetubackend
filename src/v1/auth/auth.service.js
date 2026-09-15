@@ -1,9 +1,12 @@
+import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import pool from "../../db/db.js";
 import { setClause } from "../../db/sql.js";
 import { withTransaction } from "../../db/transaction.js";
 import { audit } from "../../services/audit.js";
+import { sendMail } from "../../services/mailer.js";
 import { hashToken, issueRefreshToken, sessionPayload } from "../../services/tokens.js";
 import { ApiError } from "../../utils/ApiError.js";
+import logger from "../../utils/logger.js";
 import { hashPassword, verifyAgainstDummy, verifyPassword } from "../../utils/password.js";
 
 const USER_COLUMNS = "id, name, email, phone, is_active, created_at";
@@ -142,6 +145,106 @@ export async function updateMe(userId, data) {
     ]);
   }
   return getMe(userId);
+}
+
+// ---- Forgot password ---------------------------------------------------------
+
+const RESET_CODE_MINUTES = 15;
+const RESET_MAX_ATTEMPTS = 5;
+const RESET_RESEND_SECONDS = 60;
+
+// Keyed with the server secret so a leaked table cannot be brute-forced
+// offline; six digits are only safe behind the attempt limit and expiry.
+const hashResetCode = (userId, code) =>
+  createHmac("sha256", process.env.JWT_SECRET).update(`${userId}:${code}`).digest("hex");
+
+/**
+ * Emails a 6-digit reset code. The caller always gets the same answer, and
+ * the email is sent without waiting, so neither the response nor its timing
+ * reveals whether the address is registered.
+ */
+export async function requestPasswordReset({ email }, { ip } = {}) {
+  const {
+    rows: [user],
+  } = await pool.query("SELECT id, name, email, is_active FROM users WHERE email = $1", [email]);
+  if (!user?.is_active) return;
+
+  const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+  const created = await withTransaction(async (client) => {
+    const { rowCount: recentlySent } = await client.query(
+      "SELECT 1 FROM password_resets WHERE user_id = $1 AND created_at > now() - make_interval(secs => $2)",
+      [user.id, RESET_RESEND_SECONDS],
+    );
+    if (recentlySent) return false;
+
+    await client.query(
+      `INSERT INTO password_resets (user_id, code_hash, expires_at, requested_ip)
+       VALUES ($1, $2, now() + make_interval(mins => $3), $4)`,
+      [user.id, hashResetCode(user.id, code), RESET_CODE_MINUTES, ip ?? null],
+    );
+    await audit(client, { userId: user.id, action: "request_password_reset", entityType: "user", entityId: user.id });
+    return true;
+  });
+  if (!created) return;
+
+  sendMail({
+    to: user.email,
+    subject: "Your VyaparSetu password reset code",
+    text: [
+      `Hello ${user.name},`,
+      `Your password reset code is ${code}. It expires in ${RESET_CODE_MINUTES} minutes.`,
+      "If you did not ask to reset your password, you can ignore this email.",
+    ].join("\n\n"),
+  }).catch((error) => logger.error(`[Mail] Password reset email failed: ${error.message}`));
+}
+
+/** Sets a new password with a valid code and signs out every existing session. */
+export async function resetPassword({ email, code, new_password, device_info }) {
+  const invalid = [400, "The code is invalid or has expired"];
+
+  // Failures are returned, not thrown, so a failed attempt is still counted.
+  const outcome = await withTransaction(async (client) => {
+    const {
+      rows: [reset],
+    } = await client.query(
+      `SELECT r.id, r.user_id, r.code_hash, r.attempts, r.expires_at > now() AS is_live, u.is_active
+       FROM password_resets r
+       JOIN users u ON u.id = r.user_id
+       WHERE u.email = $1 AND r.used_at IS NULL
+       ORDER BY r.created_at DESC
+       LIMIT 1
+       FOR UPDATE OF r`,
+      [email],
+    );
+    if (!reset || !reset.is_live || reset.attempts >= RESET_MAX_ATTEMPTS) return { error: invalid };
+
+    const matches = timingSafeEqual(
+      Buffer.from(hashResetCode(reset.user_id, code)),
+      Buffer.from(reset.code_hash),
+    );
+    if (!matches) {
+      await client.query("UPDATE password_resets SET attempts = attempts + 1 WHERE id = $1", [reset.id]);
+      return { error: invalid };
+    }
+    if (!reset.is_active) return { error: [403, "User account is suspended"] };
+
+    await client.query("UPDATE users SET password_hash = $1 WHERE id = $2", [
+      await hashPassword(new_password),
+      reset.user_id,
+    ]);
+    await client.query("UPDATE password_resets SET used_at = now() WHERE user_id = $1 AND used_at IS NULL", [
+      reset.user_id,
+    ]);
+    await client.query(
+      "UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL",
+      [reset.user_id],
+    );
+    await audit(client, { userId: reset.user_id, action: "reset_password", entityType: "user", entityId: reset.user_id });
+    return { session: await startSession(client, reset.user_id, device_info) };
+  });
+
+  if (outcome.error) throw new ApiError(...outcome.error);
+  return outcome.session;
 }
 
 /** Changing the password signs out every other session. */

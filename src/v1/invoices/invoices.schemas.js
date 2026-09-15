@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   address,
   date,
+  email,
   hsnSac,
   id,
   listQuery,
@@ -124,6 +125,14 @@ export const createInvoiceSchema = z.object({ ...invoiceFields, payment: paidNow
 
 /** PUT sends the whole invoice again; fields left out are cleared. */
 export const updateInvoiceSchema = z.object(invoiceFields);
+
+export const emailInvoiceSchema = z.object({
+  // Defaults to the party's email.
+  to: email.optional(),
+  message: optionalText(1000),
+});
+
+export const pdfQuery = z.object({ download: queryBoolean.optional() });
 
 export const listInvoicesQuery = listQuery({
   invoice_type: invoiceType.optional(),

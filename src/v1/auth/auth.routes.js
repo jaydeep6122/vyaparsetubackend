@@ -29,6 +29,15 @@ router.post("/logout", validate(schemas.logoutSchema), async (req, res) => {
   ok(res, { logged_out: true });
 });
 
+router.post("/password/forgot", validate(schemas.forgotPasswordSchema), async (req, res) => {
+  await auth.requestPasswordReset(req.body, { ip: req.ip });
+  ok(res, { message: "If an account exists for this email, a reset code has been sent" });
+});
+
+router.post("/password/reset", validate(schemas.resetPasswordSchema), async (req, res) => {
+  ok(res, await auth.resetPassword(withDevice(req)));
+});
+
 router.get("/me", requireAuth, async (req, res) => {
   ok(res, await auth.getMe(req.user.id));
 });
