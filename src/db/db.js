@@ -1,10 +1,23 @@
 import pkg from "pg";
 import logger from "../utils/logger.js";
 
-const { Pool } = pkg;
+const { Pool, types } = pkg;
+
+// DATE columns stay 'YYYY-MM-DD' strings; parsed into JS Dates they shift by
+// the server's timezone and serialise as the previous day in UTC.
+types.setTypeParser(1082, (value) => value);
+// COUNT(*) and identity ids come back as bigint; they never exceed 2^53 here.
+types.setTypeParser(20, Number);
+// NUMERIC stays a string on purpose: money is handled with decimal.js.
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+});
+
+// An idle client losing its connection emits here; unhandled, it would crash
+// the process.
+pool.on("error", (err) => {
+  logger.error(`[DB Pool] Idle client error: ${err.message}`);
 });
 
 // Helper to format query text for clean logging
@@ -17,6 +30,10 @@ const formatQueryText = (text) => {
   }
   return "Complex query";
 };
+
+// Data and constraint errors (classes 22 and 23) are the client's mistake and
+// are answered with a 4xx; only the rest are real errors.
+const logLevelFor = (err) => (/^2[23]/.test(err.code ?? "") ? "warn" : "error");
 
 // Instrument pool.query
 const originalPoolQuery = pool.query;
@@ -31,7 +48,7 @@ pool.query = async function (text, params) {
   } catch (err) {
     const duration = Date.now() - start;
     const queryStr = formatQueryText(text);
-    logger.error(`[DB Query Error] ${duration}ms | Query: ${queryStr} | Error: ${err.message}`);
+    logger[logLevelFor(err)](`[DB Query Error] ${duration}ms | Query: ${queryStr} | Error: ${err.message}`);
     throw err;
   }
 };
@@ -51,7 +68,7 @@ const wrapClient = (client) => {
       } catch (err) {
         const duration = Date.now() - start;
         const queryStr = formatQueryText(text);
-        logger.error(`[DB Tx Query Error] ${duration}ms | Query: ${queryStr} | Error: ${err.message}`);
+        logger[logLevelFor(err)](`[DB Tx Query Error] ${duration}ms | Query: ${queryStr} | Error: ${err.message}`);
         throw err;
       }
     };

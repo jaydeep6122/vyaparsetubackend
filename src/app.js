@@ -4,28 +4,39 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
-import { errorHandler } from "./middlewares/error.middlewares.js";
-import authRoutes from "./v1/auth/auth.js";
-import businessesRouter from "./v1/businesses/businesses.js";
-import factoriesRouter from "./v1/factories/factories.js";
-import logger from "./utils/logger.js";
-import { readFileSync } from "fs";
+import { errorHandler, notFoundHandler } from "./middlewares/error.middlewares.js";
+import authRouter from "./v1/auth/auth.routes.js";
+import businessesRouter from "./v1/businesses/businesses.routes.js";
+import invitesRouter from "./v1/invites/invites.routes.js";
+import pool from "./db/db.js";
 
 const app = express();
+
+// Requests arrive through the hosting provider's proxy. Without this every
+// client shares the proxy's IP, and so a single rate-limit bucket.
+app.set("trust proxy", 1);
 
 // Set security HTTP headers
 app.use(helmet());
 
-// Enable CORS
+// The mobile app sends no Origin header, so CORS only affects browsers.
+// CORS_ORIGINS is a comma-separated allowlist; without it any origin may call
+// the API, but never with credentials.
+const corsOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 app.use(
-  cors({
-    origin: "*", // Adjust this to specific domains in production if needed
-    credentials: true,
-  }),
+  cors(
+    corsOrigins.length > 0
+      ? { origin: corsOrigins, credentials: true }
+      : { origin: "*" },
+  ),
 );
 
-// Development logging
-app.use(morgan("dev"));
+if (process.env.NODE_ENV !== "test") {
+  app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
+}
 
 // Custom Response Time Middleware to inject response duration headers
 app.use((req, res, next) => {
@@ -50,28 +61,53 @@ app.use((req, res, next) => {
   next();
 });
 
-// Global Rate Limiting
+const isHealthCheck = (req) => req.path === "/" || req.path === "/health";
+
+// Global Rate Limiting (per client IP)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // Limit each IP to 200 requests per windowMs
-  message: "Too many requests from this IP, please try again after 15 minutes",
+  max: 1000,
+  message: { success: false, statusCode: 429, message: "Too many requests, please try again later" },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: isHealthCheck,
 });
 app.use(limiter);
 
-app.use(express.json());
+// Password guessing gets a much smaller budget than normal API use.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { success: false, statusCode: 429, message: "Too many attempts, please try again after 15 minutes" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use(["/v1/auth/login", "/v1/auth/signup"], authLimiter);
 
-// Health check route (only match root path)
+app.use(express.json({ limit: "1mb" }));
+
+// Pinged by the keep-alive cron (only match root path)
 app.get("/", (req, res) => {
   res.status(200).json({ message: "Request sent by Cron" });
 });
 
+// Health check that also proves the database is reachable
+app.get("/health", async (req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    res.status(200).json({ status: "ok", database: "ok" });
+  } catch {
+    res.status(503).json({ status: "error", database: "unreachable" });
+  }
+});
+
 // API routes
-app.use("/v1/auth", authRoutes);
+app.use("/v1/auth", authRouter);
 app.use("/v1/businesses", businessesRouter);
-app.use("/v1/factories", factoriesRouter);
-// Error handling middleware MUST be registered last
+app.use("/v1/invites", invitesRouter);
+
+// 404 and error handling middleware MUST be registered last
+app.use(notFoundHandler);
 app.use(errorHandler);
 
 export default app;

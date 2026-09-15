@@ -1,15 +1,39 @@
 import app from "./app.js";
-import { ensureSchema } from "./db/ensureSchema.js";
+import pool from "./db/db.js";
+import { loadEnv } from "./config/env.js";
 import logger from "./utils/logger.js";
 
-const PORT = process.env.PORT || 3000;
+const env = loadEnv();
 
-app.listen(PORT, async () => {
-  logger.info(`Server running on port ${PORT}`);
+// The schema is owned by migrations (`npm run migrate`), never changed at boot.
+async function start() {
   try {
-    await ensureSchema();
-    logger.info("Database schema verified successfully");
+    await pool.query("SELECT 1");
   } catch (error) {
-    logger.error("Database schema verification failed during startup:", error);
+    logger.error(`Cannot reach the database: ${error.message}`);
+    process.exit(1);
   }
-});
+
+  const server = app.listen(env.PORT, () => {
+    logger.info(`Server running on port ${env.PORT}`);
+  });
+
+  let shuttingDown = false;
+  const shutdown = (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info(`${signal} received, closing server`);
+
+    // Stop taking new requests, let in-flight ones finish, then close the pool.
+    server.close(async () => {
+      await pool.end();
+      process.exit(0);
+    });
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
+}
+
+start();
