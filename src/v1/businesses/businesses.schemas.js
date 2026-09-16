@@ -13,7 +13,18 @@ import {
 } from "../../utils/schemas.js";
 
 const registrationType = z.enum(["regular", "composition", "unregistered"]);
-const url = z.string().trim().url("Invalid URL").max(2000).nullable().optional();
+// The mobile app keeps the logo and signature inline as data URIs (there is
+// no file storage yet), so either a web URL or a small image data URI is fine.
+const image = z
+  .string()
+  .trim()
+  .max(500_000, "Image is too large; use one under about 350 KB")
+  .regex(
+    /^(https?:\/\/\S+|data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/]+={0,2})$/,
+    "Must be an image URL or a PNG, JPEG or WEBP image",
+  )
+  .nullable()
+  .optional();
 
 const settings = z.object({
   round_off_invoices: z.boolean().optional(),
@@ -30,8 +41,8 @@ const businessFields = {
   address: address.optional(),
   phone: phone.nullable().optional(),
   email: email.nullable().optional(),
-  logo_url: url,
-  signature_url: url,
+  logo_url: image,
+  signature_url: image,
   fy_start_month: z.number().int().min(1).max(12).optional(),
   settings: settings.optional(),
 };

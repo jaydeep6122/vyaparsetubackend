@@ -10,6 +10,7 @@
     "migrate": "node-pg-migrate up -m migrations",
     "migrate:down": "node-pg-migrate down -m migrations",
     "migrate:create": "node-pg-migrate create -m migrations -j js",
+    "reset:data": "node scripts/reset-data.js",
     "test:coverage": "NODE_OPTIONS='--experimental-vm-modules' jest --runInBand --coverage"
   },
   "author": "",
