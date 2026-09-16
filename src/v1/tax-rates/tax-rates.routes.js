@@ -8,14 +8,16 @@ import { validate } from "../../middlewares/validation.middlewares.js";
 import { ApiError } from "../../utils/ApiError.js";
 import { created, ok } from "../../utils/http.js";
 import { dec } from "../../utils/money.js";
-import { percent, text } from "../../utils/schemas.js";
+import { optionalText, percent, text } from "../../utils/schemas.js";
 
 const COLUMNS = "id, name, rate, cess_rate, is_active";
 
+// Null means "not given", like everywhere else in the API: a client that
+// sends every field of its form, empty ones included, must not be rejected.
 const createTaxRateSchema = z.object({
-  name: text(50).optional(),
+  name: optionalText(50),
   rate: percent(),
-  cess_rate: percent().optional(),
+  cess_rate: percent().nullable().optional(),
 });
 
 // A rate itself never changes once created: invoices copy it, and a changed
@@ -24,6 +26,7 @@ const updateTaxRateSchema = z.object({
   name: text(50).optional(),
   is_active: z.boolean().optional(),
 });
+
 
 const router = Router({ mergeParams: true });
 
@@ -36,7 +39,8 @@ router.get("/", async (req, res) => {
 });
 
 router.post("/", requireRole("admin"), validate(createTaxRateSchema), async (req, res) => {
-  const { rate, cess_rate = "0" } = req.body;
+  const { rate } = req.body;
+  const cess_rate = req.body.cess_rate ?? "0";
   const defaultName = `GST ${dec(rate)}%${dec(cess_rate).gt(0) ? ` + ${dec(cess_rate)}% cess` : ""}`;
   const {
     rows: [taxRate],
