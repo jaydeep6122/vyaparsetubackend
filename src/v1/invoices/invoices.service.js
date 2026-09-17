@@ -54,6 +54,8 @@ const HEADER_COLUMNS = [
   "party_state_code",
   "billing_address",
   "shipping_address",
+  "billing_address_id",
+  "shipping_address_id",
   "place_of_supply",
   "supply_type",
   "is_reverse_charge",
@@ -106,6 +108,43 @@ const CHARGE_COLUMNS = [
 ];
 
 const label = (type) => type.replace("_", " ");
+
+/**
+ * The address printed on a bill, in order of preference: a saved address of
+ * the party picked by id, an address typed for this bill, the address the bill
+ * already has (editing without changing the party), then the party's default.
+ * Either kind of saved address may be used in either slot.
+ */
+async function resolveAddress(client, { businessId, party, existing, data, kind }) {
+  const idField = `${kind}_address_id`;
+  const addressField = `${kind}_address`;
+
+  if (data[idField]) {
+    if (!party) throw new ApiError(400, `${idField} needs a party`);
+    const {
+      rows: [saved],
+    } = await client.query(
+      "SELECT id, address FROM party_addresses WHERE id = $1 AND business_id = $2 AND party_id = $3",
+      [data[idField], businessId, party.id],
+    );
+    if (!saved) throw new ApiError(400, `The ${kind} address does not belong to this party`);
+    return { id: saved.id, address: saved.address };
+  }
+  if (data[addressField] !== undefined) return { id: null, address: data[addressField] };
+
+  if (existing && existing.party_id === (party?.id ?? null)) {
+    return { id: existing[idField] ?? null, address: existing[addressField] ?? null };
+  }
+  if (!party) return { id: null, address: null };
+
+  const {
+    rows: [fallback],
+  } = await client.query("SELECT id, address FROM party_addresses WHERE party_id = $1 AND kind = $2 AND is_default", [
+    party.id,
+    kind,
+  ]);
+  return { id: fallback?.id ?? null, address: fallback?.address ?? null };
+}
 
 /**
  * Validates an invoice request and prices it. `existing` is the stored
@@ -221,6 +260,10 @@ async function prepareInvoice(client, ctx, data, existing) {
     roundOff: business.settings?.round_off_invoices !== false,
   });
 
+  const addressContext = { businessId: business.id, party, existing, data };
+  const billing = await resolveAddress(client, { ...addressContext, kind: "billing" });
+  const shipping = await resolveAddress(client, { ...addressContext, kind: "shipping" });
+
   const header = Object.fromEntries(PASSTHROUGH_FIELDS.map((field) => [field, data[field] ?? null]));
   if (data.due_date === undefined && party?.credit_days != null && invoiceType === "sale") {
     header.due_date = addDays(invoiceDate, party.credit_days);
@@ -234,8 +277,10 @@ async function prepareInvoice(client, ctx, data, existing) {
     party_name: party?.name ?? data.party_name ?? "Cash sale",
     party_gstin: party?.gstin ?? null,
     party_state_code: party?.state_code ?? null,
-    billing_address: data.billing_address ?? party?.billing_address ?? null,
-    shipping_address: data.shipping_address ?? party?.shipping_address ?? null,
+    billing_address: billing.address,
+    billing_address_id: billing.id,
+    shipping_address: shipping.address,
+    shipping_address_id: shipping.id,
     place_of_supply: placeOfSupply,
     supply_type: supplyType,
     is_reverse_charge: taxMode === "gst" ? (data.is_reverse_charge ?? false) : false,

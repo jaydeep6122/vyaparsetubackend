@@ -95,6 +95,11 @@ const invoiceFields = {
   party_id: id.nullable().optional(),
   // Name printed on a walk-in cash sale.
   party_name: optionalText(255),
+  // A saved address of the party, copied onto the bill. Takes precedence over
+  // an address typed in billing_address / shipping_address. Left out, a new
+  // bill uses the party's default and an edited bill keeps its address.
+  billing_address_id: id.nullable().optional(),
+  shipping_address_id: id.nullable().optional(),
   billing_address: address.nullable().optional(),
   shipping_address: address.nullable().optional(),
   place_of_supply: stateCode.optional(),

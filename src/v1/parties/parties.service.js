@@ -16,17 +16,19 @@ const PARTY_COLUMNS = [
   "gst_type",
   "gstin",
   "state_code",
-  "billing_address",
-  "shipping_address",
   "credit_limit",
   "credit_days",
   "notes",
 ];
 
+const ADDRESS_KINDS = ["billing", "shipping"];
+
 // balance > 0: the party owes the business (receivable); < 0: payable.
+// Addresses come back defaults first, then in the order they were saved.
 const PARTY_SELECT = `
   SELECT p.*,
          bal.balance,
+         addr.addresses,
          op.debit AS opening_debit,
          op.credit AS opening_credit,
          op.entry_date AS opening_balance_date
@@ -36,18 +38,123 @@ const PARTY_SELECT = `
     FROM party_ledger_entries e
     WHERE e.business_id = p.business_id AND e.party_id = p.id
   ) bal
+  CROSS JOIN LATERAL (
+    SELECT COALESCE(
+             json_agg(
+               json_build_object('id', a.id, 'kind', a.kind, 'label', a.label,
+                                 'address', a.address, 'is_default', a.is_default)
+               ORDER BY a.kind, a.is_default DESC, a.position, a.created_at
+             ),
+             '[]'::json
+           ) AS addresses
+    FROM party_addresses a
+    WHERE a.party_id = p.id
+  ) addr
   LEFT JOIN party_ledger_entries op
     ON op.party_id = p.id AND op.source_type = 'opening' AND op.source_id = p.id`;
+
+const defaultAddress = (addresses, kind) =>
+  addresses.find((entry) => entry.kind === kind && entry.is_default)?.address ?? null;
 
 function shape({ opening_debit, opening_credit, total_count, ...party }) {
   const credit = dec(opening_credit ?? 0);
   return {
     ...party,
+    // Kept for clients that know one address of each kind: the defaults.
+    billing_address: defaultAddress(party.addresses, "billing"),
+    shipping_address: defaultAddress(party.addresses, "shipping"),
     opening_balance: money(dec(opening_debit ?? 0).plus(credit)),
     opening_balance_type: credit.gt(0) ? "payable" : "receivable",
     balance_type: dec(party.balance).lt(0) ? "payable" : "receivable",
     ...(total_count !== undefined && { total_count }),
   };
+}
+
+const isBlankAddress = (value) =>
+  !Object.values(value ?? {}).some((field) => typeof field === "string" && field.trim() !== "");
+
+/**
+ * Makes the party's saved addresses exactly `entries`: listed ids are updated,
+ * entries without an id are added, everything else is removed. Bills keep
+ * their own copy of an address, so removing one never changes a bill.
+ */
+async function replaceAddresses(client, businessId, partyId, entries) {
+  const { rows: existing } = await client.query(
+    "SELECT id FROM party_addresses WHERE party_id = $1 AND business_id = $2",
+    [partyId, businessId],
+  );
+  const existingIds = new Set(existing.map((row) => row.id));
+  if (entries.some((entry) => entry.id && !existingIds.has(entry.id))) {
+    throw new ApiError(400, "An address does not belong to this party");
+  }
+
+  const rows = entries.map((entry, position) => ({ ...entry, position, is_default: entry.is_default === true }));
+  for (const kind of ADDRESS_KINDS) {
+    const ofKind = rows.filter((row) => row.kind === kind);
+    if (ofKind.length > 0 && !ofKind.some((row) => row.is_default)) ofKind[0].is_default = true;
+  }
+
+  await client.query(
+    "DELETE FROM party_addresses WHERE party_id = $1 AND business_id = $2 AND NOT (id = ANY($3::uuid[]))",
+    [partyId, businessId, rows.filter((row) => row.id).map((row) => row.id)],
+  );
+  // Clear defaults first so the one-default-per-kind index never sees two.
+  await client.query("UPDATE party_addresses SET is_default = false WHERE party_id = $1 AND is_default", [partyId]);
+
+  for (const row of rows) {
+    if (row.id) {
+      await client.query(
+        `UPDATE party_addresses SET kind = $2, label = $3, address = $4, is_default = $5, position = $6
+         WHERE id = $1`,
+        [row.id, row.kind, row.label ?? null, row.address, row.is_default, row.position],
+      );
+    } else {
+      await client.query(
+        `INSERT INTO party_addresses (business_id, party_id, kind, label, address, is_default, position)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [businessId, partyId, row.kind, row.label ?? null, row.address, row.is_default, row.position],
+      );
+    }
+  }
+}
+
+/**
+ * An older client's single address of one kind. It sets that kind's default.
+ * Clearing it only removes the address when the party has just that one, so
+ * an old app saving the form cannot wipe addresses added from a newer one.
+ */
+async function applyLegacyAddress(client, businessId, partyId, kind, value) {
+  if (value === undefined) return;
+
+  const { rows: saved } = await client.query(
+    "SELECT id, is_default FROM party_addresses WHERE party_id = $1 AND kind = $2 ORDER BY is_default DESC, position",
+    [partyId, kind],
+  );
+  const current = saved.find((row) => row.is_default);
+
+  if (value === null || isBlankAddress(value)) {
+    if (saved.length === 1) await client.query("DELETE FROM party_addresses WHERE id = $1", [saved[0].id]);
+    return;
+  }
+  if (current) {
+    await client.query("UPDATE party_addresses SET address = $2 WHERE id = $1", [current.id, value]);
+  } else {
+    await client.query(
+      `INSERT INTO party_addresses (business_id, party_id, kind, address, is_default, position)
+       VALUES ($1, $2, $3, $4, true, $5)`,
+      [businessId, partyId, kind, value, saved.length],
+    );
+  }
+}
+
+async function syncAddresses(client, businessId, partyId, data) {
+  if (data.addresses !== undefined) {
+    await replaceAddresses(client, businessId, partyId, data.addresses);
+    return;
+  }
+  for (const kind of ADDRESS_KINDS) {
+    await applyLegacyAddress(client, businessId, partyId, kind, data[`${kind}_address`]);
+  }
 }
 
 export async function getParty(db, businessId, partyId) {
@@ -105,6 +212,7 @@ export async function createParty(ctx, data) {
       ],
       "*",
     );
+    await syncAddresses(client, ctx.business.id, party.id, data);
 
     await postPartyOpening(client, party, {
       amount: data.opening_balance,
@@ -138,6 +246,7 @@ export async function updateParty(ctx, partyId, data) {
         [...set.values, partyId, ctx.business.id],
       );
     }
+    await syncAddresses(client, ctx.business.id, partyId, data);
 
     if (
       data.opening_balance !== undefined ||

@@ -47,7 +47,18 @@ describe("api fixtures", () => {
     customer = data(
       await biz.post(
         "/parties",
-        { name: "Krishna Hardware", party_type: "customer", state_code: "24", phone: "9876543210", opening_balance: 2500 },
+        {
+          name: "Krishna Hardware",
+          party_type: "customer",
+          state_code: "24",
+          phone: "9876543210",
+          opening_balance: 2500,
+          addresses: [
+            { kind: "billing", label: "Head office", address: { line1: "1 Main Road", city: "Rajkot", state: "Gujarat", pincode: "360001" } },
+            { kind: "billing", label: "Branch", address: { line1: "9 Ring Road", city: "Rajkot", state: "Gujarat" } },
+            { kind: "shipping", label: "Warehouse", address: { line1: "Plot 4 GIDC", city: "Morbi", state: "Gujarat" } },
+          ],
+        },
         201,
       ),
     );
@@ -85,6 +96,8 @@ describe("api fixtures", () => {
         {
           invoice_type: "sale",
           party_id: customer.id,
+          billing_address_id: customer.addresses.find((a) => a.label === "Branch").id,
+          shipping_address_id: customer.addresses.find((a) => a.kind === "shipping").id,
           vehicle_no: "GJ03AB1234",
           driver_name: "Ramesh",
           transport_mode: "road",
